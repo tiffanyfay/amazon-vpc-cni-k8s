@@ -1,8 +1,9 @@
-package e2e
+package e2e_test
 
 import (
 	"testing"
 
+	_ "github.com/aws/amazon-vpc-cni-k8s/test/e2e/awsnode"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework/utils"
 
@@ -18,7 +19,7 @@ var _ = SynchronizedAfterSuite(func() {
 }, func() {
 })
 
-func TestE2E(t *testing.T) {
+func TestE2e(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "E2E Suite")
+	RunSpecs(t, "E2e Suite")
 }

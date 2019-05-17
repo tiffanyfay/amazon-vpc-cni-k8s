@@ -53,6 +53,10 @@ func (m *NamespaceManager) CreateNamespaceUnique(ctx context.Context, baseName s
 	if err != nil {
 		return nil, err
 	}
+	return m.CreateNamespace(ctx, name)
+}
+
+func (m *NamespaceManager) CreateNamespace(ctx context.Context, name string) (*corev1.Namespace, error) {
 	namespaceObj := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,

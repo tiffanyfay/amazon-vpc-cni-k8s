@@ -1,0 +1,275 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+    name: cni-test
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: prometheus
+  namespace: cni-test
+rules:
+- apiGroups: [""]
+  resources:
+#  - nodes
+#  - nodes/proxy
+#  - services
+#  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+    name: prometheus
+    namespace: cni-test
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: prometheus
+  namespace: cni-test
+roleRef:
+  apiGroup: "rbac.authorization.k8s.io"
+  kind: Role
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: cni-test
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-server-conf
+  labels:
+    name: prometheus-server-conf
+  namespace: cni-test
+data:
+  prometheus.rules: |-
+  prometheus.yml: |-
+    global:
+      scrape_interval: 5s
+      evaluation_interval: 5s
+    rule_files:
+      - /etc/prometheus/prometheus.rules
+    scrape_configs:
+      - job_name: 'cni-pods'
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+            - cni-test
+            - kube-system
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+          action: replace
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+          target_label: __address__
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name
+# ---
+# apiVersion: extensions/v1beta1
+# kind: Deployment
+# metadata:
+#   name: prometheus-deployment
+#   namespace: cni-test
+# spec:
+#   replicas: 1
+#   template:
+#     metadata:
+#       labels:
+#         app: prometheus-server
+#     spec:
+#       serviceAccountName: "testpod"
+#       containers:
+#         - name: prometheus
+#           image: prom/prometheus:v2.1.0
+#           args:
+#             - "--config.file=/etc/prometheus/prometheus.yml"
+#             - "--storage.tsdb.path=/prometheus/"
+#           ports: 
+#             - containerPort: 9090
+#           volumeMounts:
+#             - name: prometheus-config-volume
+#               mountPath: /etc/prometheus/
+#             - name: prometheus-storage-volume
+#               mountPath: /prometheus/
+#       volumes:
+#         - name: prometheus-config-volume
+#           configMap:
+#             defaultMode: 420
+#             name: prometheus-server-conf
+  
+#         - name: prometheus-storage-volume
+#           emptyDir: {}
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#     name: prometheus
+#     namespace: cni-test
+# spec: 
+#     selector:
+#         app: prometheus-deployment
+#     ports:
+#     - port: 9090
+
+# testpod    
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+    name: testpod
+    namespace: cni-test
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+    namespace: cni-test
+    name: testreader
+rules:
+    - apiGroups: [""]
+      resources: ["pods"]
+      verbs: ["get", "watch", "list"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+    name: cni-test-read
+    namespace: cni-test
+subjects:
+    - kind: ServiceAccount
+      name: testpod
+      namespace: cni-test
+      apiGroup: ""
+roleRef:
+    kind: Role
+    name: testreader
+    apiGroup: ""
+
+
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: awsnodereader
+  namespace: kube-system
+rules:
+- apiGroups: [""]
+  resources:
+#  - nodes
+#  - nodes/proxy
+#  - services
+#  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+    name: aws-node-read
+    namespace: kube-system
+subjects:
+    - kind: ServiceAccount
+      name: testpod
+      namespace: cni-test
+      apiGroup: ""
+roleRef:
+    kind: Role
+    name: awsnodereader
+    apiGroup: ""
+
+
+# ---
+# apiVersion: extensions/v1beta1
+# kind: Deployment
+# metadata:
+#   namespace: cni-test
+#   name: testpod
+#   labels:
+#     app: testpod
+# spec:
+#   replicas: 1
+#   strategy:
+#     type: RollingUpdate
+#     rollingUpdate:
+#       maxSurge: 5
+#       maxUnavailable: 1
+#   template:
+#     metadata:
+#       labels:
+#         app: testpod
+#       annotations:
+#         "prometheus.io/scrape": "true"
+#         "prometheus.io/port": "8080"
+#     spec:
+#       serviceAccountName: "testpod"
+#       terminationGracePeriodSeconds: 180
+#       containers:
+#       - name: testpod
+#         image: 038954622175.dkr.ecr.us-west-2.amazonaws.com/cni-test:promtesting
+#         imagePullPolicy: Always
+#         ports:
+#           - name: http
+#             containerPort: 8080
+#       nodeSelector:
+#         cni-test: "true"
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#     name: testpod-clusterip
+#     namespace: cni-test
+# spec: 
+#     selector:
+#         app: testpod
+#     ports:
+#     - port: 8080
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#     name: testpod-pod-ip
+#     namespace: cni-test
+# spec: 
+#     selector:
+#         app: testpod
+#     clusterIP: None
+#     ports:
+#     - port: 8080
+
+
+
+
+
+
+# This will be needed if the test for  metrics are running in a pod
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#     name: aws-node-prom-ip
+#     namespace: cni-test //kube-system?
+# spec: 
+#     selector:
+#         app: aws-node
+#     clusterIP: None
+#     ports:
+#     - port: 61678

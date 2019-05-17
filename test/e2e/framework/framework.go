@@ -10,8 +10,8 @@ import (
 	// "github.com/kubernetes-sigs/aws-alb-ingress-controller/internal/ingress/metric"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework/resource"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework/utils"
-	"github.com/onsi/ginkgo"
-	"github.com/onsi/gomega"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -23,7 +23,7 @@ import (
 type Framework struct {
 	ClientSet clientset.Interface
 	// Cloud           cloud.Cloud
-	awsClient       awsutils.APIs
+	AWSClient       awsutils.APIs
 	ResourceManager *resource.Manager
 
 	Options Options
@@ -40,8 +40,8 @@ func New() *Framework {
 		Options: globalOptions,
 	}
 
-	ginkgo.BeforeEach(f.BeforeEach)
-	ginkgo.AfterEach(f.AfterEach)
+	BeforeEach(f.BeforeEach)
+	AfterEach(f.AfterEach)
 
 	return f
 }
@@ -52,9 +52,9 @@ func (f *Framework) BeforeEach() {
 	if f.ClientSet == nil {
 		var err error
 		restCfg, err := f.buildRestConfig()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		Expect(err).NotTo(HaveOccurred())
 		f.ClientSet, err = clientset.NewForConfig(restCfg)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		Expect(err).NotTo(HaveOccurred())
 	}
 	// if f.Cloud == nil {
 	// 	// reg := prometheus.NewRegistry()
@@ -66,12 +66,12 @@ func (f *Framework) BeforeEach() {
 	// 		f.Options.ClusterName, mc)
 	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	// }
-	if f.awsClient == nil {
+	if f.AWSClient == nil {
 		// reg := prometheus.NewRegistry()
 		// mc, _ := metric.NewCollector(reg, "alb")
 		var err error
-		f.awsClient, err = awsutils.New()
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		f.AWSClient, err = awsutils.New()
+		Expect(err).NotTo(HaveOccurred())
 	}
 
 	f.ResourceManager = resource.NewManager(f.ClientSet)

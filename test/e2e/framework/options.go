@@ -42,8 +42,8 @@ func (options *Options) Validate() error {
 	if len(options.AWSRegion) == 0 {
 		return errors.Errorf("%s must be set!", "aws-region")
 	}
-	if len(options.AWSVPCID) == 0 {
-		return errors.Errorf("%s must be set!", "aws-vpc-id")
-	}
+	// if len(options.AWSVPCID) == 0 {
+	// 	return errors.Errorf("%s must be set!", "aws-vpc-id")
+	// }
 	return nil
 }

@@ -1,16 +1,16 @@
-package cni
+package awsnode
 
 import (
 	"context"
-	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 
+	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
+	// _ "github.com/aws/amazon-vpc-cni-k8s/test/e2e/awsnode"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
-	_ "github.com/aws/amazon-vpc-cni-k8s/test/e2e/cni"
+
 	// "k8s.io/kubernetes/test/e2e/framework"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -20,6 +20,10 @@ import (
 
 // Timeout for waiting events in seconds
 // const TIMEOUT = 60
+var (
+	f  *framework.Framework
+	ns *corev1.Namespace
+)
 
 // var zero model.SampleValue
 
@@ -29,19 +33,23 @@ type prom struct {
 	testTime time.Time
 }
 
-func TestCNI(t *testing.T) {
-	RegisterFailHandler(Fail) //Make sure this works
-	RunSpecs(t, "cni-tester") // TODO: see what this does
-}
+// func TestCNI(t *testing.T) {
+// 	RegisterFailHandler(Fail) //Make sure this works
+// 	RunSpecs(t, "cni-tester") // TODO: see what this does
+// }
 
 // Add before and after for setup and delete of pods
-type PromResources struct {
+type Resources struct {
 	Deployment *appsv1.Deployment
 	Service    *corev1.Service
 }
 
-func newPromResources(replicas int32) *PromResources {
+func NewPromResources(replicas int32) *Resources {
 	mode := int32(420)
+
+	labels := map[string]string{
+		"app": "prometheus-server",
+	}
 
 	dp := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -50,7 +58,7 @@ func newPromResources(replicas int32) *PromResources {
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
-			// Selector: &metav1.LabelSelector{MatchLabels: stackLabels},
+			Selector: &metav1.LabelSelector{MatchLabels: labels},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
@@ -58,6 +66,7 @@ func newPromResources(replicas int32) *PromResources {
 					},
 				},
 				Spec: corev1.PodSpec{
+					ServiceAccountName: "testpod",
 					Containers: []corev1.Container{
 						{
 							Name:  "prometheus",
@@ -89,6 +98,9 @@ func newPromResources(replicas int32) *PromResources {
 							VolumeSource: corev1.VolumeSource{
 								ConfigMap: &corev1.ConfigMapVolumeSource{
 									DefaultMode: &mode,
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "prometheus-server-conf",
+									},
 								},
 							},
 						},
@@ -122,13 +134,13 @@ func newPromResources(replicas int32) *PromResources {
 		},
 	}
 
-	return &PromResources{
+	return &Resources{
 		Deployment: dp,
 		Service:    svc,
 	}
 }
 
-func (r *PromResources) ExpectDeploymentSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
+func (r *Resources) ExpectDeploymentSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
 	By("create deployment")
 	dp, err := f.ClientSet.AppsV1().Deployments(ns.Name).Create(r.Deployment)
 	Expect(err).NotTo(HaveOccurred())
@@ -146,26 +158,44 @@ func (r *PromResources) ExpectDeploymentSuccessful(ctx context.Context, f *frame
 	Expect(err).NotTo(HaveOccurred())
 }
 
+func (r *Resources) ExpectCleanupSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
+	By("delete service")
+	err := f.ClientSet.CoreV1().Services(ns.Name).Delete(r.Service.Name, &metav1.DeleteOptions{})
+	Expect(err).NotTo(HaveOccurred())
+
+	By("delete deployment")
+	err = f.ClientSet.AppsV1().Deployments(ns.Name).Delete(r.Deployment.Name, &metav1.DeleteOptions{})
+	Expect(err).NotTo(HaveOccurred())
+}
+
 var _ = Describe("cni-tester", func() {
-	f := framewgo ork.New()
+	f := framework.New()
+	promReplicas := int32(1)
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "cni-test"}}
 
 	var (
-		ctx context.Context
-		ns  *corev1.Namespace
+		ctx  context.Context
+		prom *Resources
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		var err error
-		ns, err = f.ResourceManager.CreateNamespaceUnique(context.TODO(), "cni-test")
-		Expect(err).NotTo(HaveOccurred())
+		prom = NewPromResources(promReplicas)
+		prom.ExpectDeploymentSuccessful(ctx, f, ns)
 	})
 
-	It("[mod-instance] should work", func() {
-		prom := newPromResources(int32(1))
-		// stackName := "multi-path-echo"
-		// stack := NewMultiPathEchoStack(stackName, false)
-		prom.ExpectDeploymentSuccessful(ctx, f, ns)
+	It("Should get 2 ENIs", func() {
+		attachedENIs, err := f.AWSClient.GetAttachedENIs()
+		Expect(err).ShouldNot(HaveOccurred())
+		maxENIs, err := f.AWSClient.GetENILimit()
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(len(attachedENIs)).To(BeNumerically("<", maxENIs))
+		Expect(len(attachedENIs)).To(Equal(2))
+
+	})
+
+	AfterEach(func() {
+		prom.ExpectCleanupSuccessful(ctx, f, ns)
 	})
 })
 
