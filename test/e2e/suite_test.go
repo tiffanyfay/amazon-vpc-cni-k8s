@@ -3,7 +3,7 @@ package e2e_test
 import (
 	"testing"
 
-	_ "github.com/aws/amazon-vpc-cni-k8s/test/e2e/awsnode"
+	_ "github.com/aws/amazon-vpc-cni-k8s/test/e2e/cni"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework/utils"
 

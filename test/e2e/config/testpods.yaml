@@ -1,0 +1,55 @@
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  namespace: cni-test
+  name: testpod
+  labels:
+    app: testpod
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 5
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: testpod
+      annotations:
+        "prometheus.io/scrape": "true"
+        "prometheus.io/port": "8080"
+    spec:
+      serviceAccountName: "testpod"
+      terminationGracePeriodSeconds: 180
+      containers:
+      - name: testpod
+        image: 038954622175.dkr.ecr.us-west-2.amazonaws.com/cni-test:promtesting
+        imagePullPolicy: Always
+        ports:
+          - name: http
+            containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: testpod-clusterip
+    namespace: cni-test
+spec: 
+    selector:
+        app: testpod
+    ports:
+    - port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: testpod-pod-ip
+    namespace: cni-test
+spec: 
+    selector:
+        app: testpod
+    clusterIP: None
+    ports:
+    - port: 8080

@@ -2,15 +2,13 @@ package shared
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/prometheus/common/model"
 
-	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	// _ "github.com/aws/amazon-vpc-cni-k8s/test/e2e/awsnode"
-	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
-
+	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	// "k8s.io/kubernetes/test/e2e/framework"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -19,15 +17,9 @@ import (
 )
 
 // prom holds the created prom v1 API and the time the test runs
-type prom struct {
-	api      promv1.API
-	testTime time.Time
-}
-
-// Add before and after for setup and delete of pods
-type Resources struct {
-	Deployment *appsv1.Deployment
-	Service    *corev1.Service
+type Prom struct {
+	API      promv1.API
+	TestTime time.Time
 }
 
 func NewPromResources(replicas int32) *Resources {
@@ -44,12 +36,10 @@ func NewPromResources(replicas int32) *Resources {
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: labels},
+			Selector: &metav1.LabelSelector{MatchLabels: labels}, //TODO check this
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"app": "prometheus-server",
-					},
+					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "testpod",
@@ -126,30 +116,37 @@ func NewPromResources(replicas int32) *Resources {
 	}
 }
 
-func (r *Resources) ExpectDeploymentSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
-	By("create deployment")
-	dp, err := f.ClientSet.AppsV1().Deployments(ns.Name).Create(r.Deployment)
-	Expect(err).NotTo(HaveOccurred())
+func (p *Prom) Query(requests string, failures string) (model.SampleValue, error) {
+	// if either is 0 return 0
+	requestsQuery, err := p.API.Query(context.Background(),
+		fmt.Sprintf("sum(%s)", requests), p.TestTime)
+	if err != nil {
+		return 0, fmt.Errorf("query sum(%s) has value of 0 at time %v", requests, p.TestTime)
+	}
+	if len(requestsQuery.(model.Vector)) != 1 {
+		return 0, fmt.Errorf("query sum(%s) has no data at time %v", requests, p.TestTime)
+	}
 
-	By("create service")
-	svc, err := f.ClientSet.CoreV1().Services(ns.Name).Create(r.Service)
-	Expect(err).NotTo(HaveOccurred())
+	failuresQuery, err := p.API.Query(context.Background(),
+		fmt.Sprintf("sum(%s)", failures), p.TestTime)
+	if err != nil {
+		return 0, err
+	}
+	if len(failuresQuery.(model.Vector)) != 1 {
+		return 0, fmt.Errorf("query sum(%s) has no data at time %v", failures, p.TestTime)
+	}
+	if failuresQuery.(model.Vector)[0].Value == 0 { //todo make sure the check works
+		return 0, nil
+	}
 
-	By("wait deployment")
-	dp, err = f.ResourceManager.WaitDeploymentReady(ctx, dp)
-	Expect(err).NotTo(HaveOccurred())
-
-	By("wait service")
-	_, err = f.ResourceManager.WaitServiceHasEndpointsNum(ctx, svc, int(*dp.Spec.Replicas))
-	Expect(err).NotTo(HaveOccurred())
-}
-
-func (r *Resources) ExpectCleanupSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
-	By("delete service")
-	err := f.ClientSet.CoreV1().Services(ns.Name).Delete(r.Service.Name, &metav1.DeleteOptions{})
-	Expect(err).NotTo(HaveOccurred())
-
-	By("delete deployment")
-	err = f.ClientSet.AppsV1().Deployments(ns.Name).Delete(r.Deployment.Name, &metav1.DeleteOptions{})
-	Expect(err).NotTo(HaveOccurred())
+	percent := fmt.Sprintf("sum(%s) / sum(%s)", failures, requests)
+	query, err := p.API.Query(context.Background(),
+		fmt.Sprintf("sum(%s) / sum(%s)", failures, requests), p.TestTime)
+	if err != nil {
+		return 0, err
+	}
+	if len(query.(model.Vector)) != 1 {
+		return 0, fmt.Errorf("query sum(%s) has no data at time %v", percent, p.TestTime)
+	}
+	return query.(model.Vector)[0].Value, err
 }

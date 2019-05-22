@@ -25,6 +25,7 @@ type Framework struct {
 	// Cloud           cloud.Cloud
 	AWSClient       awsutils.APIs
 	ResourceManager *resource.Manager
+	Config          *rest.Config // TODO delete me
 
 	Options Options
 
@@ -53,6 +54,7 @@ func (f *Framework) BeforeEach() {
 		var err error
 		restCfg, err := f.buildRestConfig()
 		Expect(err).NotTo(HaveOccurred())
+		f.Config = restCfg // TODO delete me
 		f.ClientSet, err = clientset.NewForConfig(restCfg)
 		Expect(err).NotTo(HaveOccurred())
 	}
