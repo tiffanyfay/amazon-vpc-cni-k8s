@@ -6,8 +6,6 @@ import (
 	_ "github.com/aws/amazon-vpc-cni-k8s/test/e2e/cni"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework/utils"
-
-	// _ "github.com/kubernetes-sigs/aws-alb-ingress-controller/test/e2e/ingress"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -21,5 +19,5 @@ var _ = SynchronizedAfterSuite(func() {
 
 func TestE2e(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "E2e Suite")
+	RunSpecs(t, "E2E Suite")
 }

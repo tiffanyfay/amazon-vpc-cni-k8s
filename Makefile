@@ -12,6 +12,7 @@
 # language governing permissions and limitations under the License.
 #
 
+#todo add e2e
 .PHONY: all build-linux clean format check-format docker docker-build lint unit-test vet download-portmap build-docker-test build-metrics docker-metrics metrics-unit-test docker-metrics-test docker-vet
 
 IMAGE   ?= amazon/amazon-k8s-cni
@@ -47,6 +48,9 @@ docker:
 	@docker build --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.release -t "$(IMAGE):$(VERSION)" .
 	@echo "Built Docker image \"$(IMAGE):$(VERSION)\""
 
+build-docker-test:
+	@docker build -f scripts/dockerfiles/Dockerfile.test -t amazon-k8s-cni-test:latest .
+	
 # unit-test
 unit-test:
 	GOOS=linux CGO_ENABLED=1 go test -v -cover ./cni-metrics-helper/metrics/...
@@ -70,13 +74,24 @@ unit-test-race:
 	GOOS=linux CGO_ENABLED=1 go test -v -cover -race -timeout 10s ./pkg/utils/...
 	GOOS=linux CGO_ENABLED=1 go test -v -cover -race -timeout 10s ./pkg/eniconfig/...
 	GOOS=linux CGO_ENABLED=1 go test -v -cover -race -timeout 10s ./ipamd/...
-
-build-docker-test:
-	@docker build -f scripts/dockerfiles/Dockerfile.test -t amazon-k8s-cni-test:latest .
-
+	
 docker-unit-test: build-docker-test
 	docker run -e GO111MODULE=on \
 		amazon-k8s-cni-test:latest make unit-test
+
+build-docker-e2e:
+	@docker build -f scripts/dockerfiles/Dockerfile.e2e -t amazon-k8s-cni-e2e:latest .
+
+# maybe rename to e2e-test-helper ?
+docker-testpod:
+	@docker build --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.testpod -t "amazon/cni-testpod:$(VERSION)" .
+	@echo "Built Docker image \"amazon/cni-testpod:$(VERSION)\""
+
+# TODO: remove GOOS? Take in inputs for cluster-name, region, etc
+docker-e2e-test: build-docker-e2e
+	docker run -v $(KUBECONFIG):/.kube/:ro -e GO111MODULE=on \
+		amazon-k8s-cni-e2e:latest ginkgo -v test/e2e -- \
+		--kubeconfig=.kube/config --cluster-name=firenze --aws-region=us-west-2
 
 # Build metrics
 build-metrics:

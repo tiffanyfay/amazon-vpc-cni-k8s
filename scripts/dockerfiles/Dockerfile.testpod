@@ -1,0 +1,15 @@
+FROM golang:1.12-stretch as builder
+
+RUN mkdir /app
+ADD . /app # todo make this just testpod.go
+WORKDIR /app
+RUN CGO_ENABLED=0 go build -o testpod testpod.go
+
+FROM alpine
+
+RUN apk add bind-tools curl 
+# TODO: apk install some networking tools (dig/curl etc) bind-tools has dig
+RUN mkdir /app
+COPY --from=builder /app/testpod /app/testpod
+WORKDIR /app
+CMD ["/app/testpod"]

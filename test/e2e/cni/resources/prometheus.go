@@ -1,4 +1,4 @@
-package shared
+package resources
 
 import (
 	"context"
@@ -42,7 +42,7 @@ func NewPromResources(replicas int32) *Resources {
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: "testpod",
+					ServiceAccountName: "testpod", // TODO change this name
 					Containers: []corev1.Container{
 						{
 							Name:  "prometheus",
@@ -116,7 +116,7 @@ func NewPromResources(replicas int32) *Resources {
 	}
 }
 
-func (p *Prom) Query(requests string, failures string) (model.SampleValue, error) {
+func (p *Prom) QueryPercent(requests string, failures string) (model.SampleValue, error) {
 	// if either is 0 return 0
 	requestsQuery, err := p.API.Query(context.Background(),
 		fmt.Sprintf("sum(%s)", requests), p.TestTime)
@@ -147,6 +147,18 @@ func (p *Prom) Query(requests string, failures string) (model.SampleValue, error
 	}
 	if len(query.(model.Vector)) != 1 {
 		return 0, fmt.Errorf("query sum(%s) has no data at time %v", percent, p.TestTime)
+	}
+	return query.(model.Vector)[0].Value, err
+}
+
+func (p *Prom) Query(name string) (model.SampleValue, error) {
+	// if either is 0 return 0
+	query, err := p.API.Query(context.Background(), name, p.TestTime)
+	if err != nil {
+		return 0, err
+	}
+	if len(query.(model.Vector)) != 1 {
+		return 0, fmt.Errorf("query (%s) has no data at time %v", p.TestTime)
 	}
 	return query.(model.Vector)[0].Value, err
 }
