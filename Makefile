@@ -89,9 +89,10 @@ docker-testpod:
 
 # TODO: remove GOOS? Take in inputs for cluster-name, region, etc
 docker-e2e-test: build-docker-e2e
-	docker run -v $(KUBECONFIG):/.kube/:ro -e GO111MODULE=on \
-		amazon-k8s-cni-e2e:latest ginkgo -v test/e2e -- \
-		--kubeconfig=.kube/config --cluster-name=firenze --aws-region=us-west-2
+	docker run -v $(KUBECONFIG):/root/.kube/config:ro \
+		-v $(HOME)/.aws/:/root/.aws/:ro \
+		-e GO111MODULE=on amazon-k8s-cni-e2e:latest \
+		ginkgo -v test/e2e -- --kubeconfig=/root/.kube/config --cluster-name=firenze --aws-region=us-west-2
 
 # Build metrics
 build-metrics:
