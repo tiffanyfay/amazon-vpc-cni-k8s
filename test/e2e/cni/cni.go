@@ -11,6 +11,7 @@ import (
 
 	promapi "github.com/prometheus/client_golang/api"
 	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
+	"github.com/prometheus/common/log"
 
 	// _ "github.com/aws/amazon-vpc-cni-k8s/test/e2e/awsnode"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/cni/resources"
@@ -30,6 +31,7 @@ var (
 	promResources *resources.Resources
 	prom          *resources.Prom
 	promAPI       promv1.API
+	count         int
 )
 
 var _ = Describe("cni-tester", func() {
@@ -50,6 +52,8 @@ var _ = Describe("cni-tester", func() {
 	// })
 
 	BeforeEach(func() {
+		log.Infof("count %d", count)
+		count++
 		var err error
 		ctx = context.Background()
 		// ns, err = f.ResourceManager.CreateNamespace(context.TODO(), "cni-test")
@@ -124,6 +128,7 @@ var _ = Describe("cni-tester", func() {
 		} else {
 			resp.Body.Close()
 		}
+		log.Infof("healthz %v %v", resp.Status, resp.Body)
 
 		cfg := promapi.Config{Address: address}
 		client, err := promapi.NewClient(cfg)
@@ -136,9 +141,11 @@ var _ = Describe("cni-tester", func() {
 			API:      promAPI,
 			TestTime: testTime, //TODO change
 		}
+		log.Debug("prom resources")
 	})
 
 	It("Should get 2 ENIs", func() {
+		log.Debug("blah 2 enis")
 		attachedENIs, err := f.AWSClient.GetAttachedENIs()
 		Expect(err).ShouldNot(HaveOccurred())
 		maxENIs, err := f.AWSClient.GetENILimit()

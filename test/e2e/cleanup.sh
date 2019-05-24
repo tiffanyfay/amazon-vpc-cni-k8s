@@ -1,3 +1,2 @@
 #!/usr/bin/env bash
-kubectl -n cni-test delete deployment.extensions/prometheus-deployment service/prometheus 
-#serviceaccount/testpod deployment.extensions/testpod service/testpod-clusterip service/testpod-pod-ip
+kubectl -n cni-test delete deployment.extensions/prometheus-deployment service/prometheus deployment/cni-e2e
