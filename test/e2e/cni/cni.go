@@ -2,9 +2,8 @@ package cni_test
 
 import (
 	"context"
-	"net"
+	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -19,8 +18,6 @@ import (
 
 	// "k8s.io/kubernetes/test/e2e/framework"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/tools/portforward"
-	"k8s.io/client-go/transport/spdy"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -45,8 +42,8 @@ var _ = Describe("cni-tester", func() {
 		// conn net.Conn
 	)
 
-	stopChan := make(chan struct{}, 1)
-	readyChan := make(chan struct{})
+	// stopChan := make(chan struct{}, 1)
+	// readyChan := make(chan struct{})
 
 	// It("portforward new should be nil", func() { //TODO edit caption
 	// 	Expect(err).To(BeNil()) // check this vs notto have occurred
@@ -61,53 +58,71 @@ var _ = Describe("cni-tester", func() {
 		promResources = resources.NewPromResources(promReplicas)
 		promResources.ExpectDeploymentSuccessful(ctx, f, ns)
 
-		podList, err := f.ClientSet.CoreV1().Pods(ns.Name).List(metav1.ListOptions{LabelSelector: "app=prometheus-server"})
+		podList, err := f.ClientSet.CoreV1().Pods(ns.Name).List(metav1.ListOptions{
+			LabelSelector: "app=prometheus-server",
+		})
 		if err != nil {
-			panic("Error listing prometheus pod(s)")
+			Fail("Error listing prometheus pod(s)")
 		}
 
 		if len(podList.Items) == 0 {
 			Fail("Error getting prometheus pod(s)")
 		}
-		podName := podList.Items[0].Name
-		podNameSpace := podList.Items[0].Namespace
+		// podName := podList.Items[0].Name
+		// podNameSpace := podList.Items[0].Namespace
 
-		// port forwarding
-		go func() {
-			req := f.ClientSet.CoreV1().RESTClient().Post().Resource("pods").
-				Namespace(podNameSpace).Name(podName).SubResource("portforward")
-			url := req.URL()
-			transport, upgrader, err := spdy.RoundTripperFor(f.Config)
-			if err != nil {
-				Fail("Error getting roundtripper")
-			}
-			dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, "POST", url)
-			ports := []string{"9090:9090"}
+		// // port forwarding
+		// go func() {
+		// 	req := f.ClientSet.CoreV1().RESTClient().Post().Resource("pods").
+		// 		Namespace(podNameSpace).Name(podName).SubResource("portforward")
+		// 	url := req.URL()
+		// 	transport, upgrader, err := spdy.RoundTripperFor(f.Config)
+		// 	if err != nil {
+		// 		Fail("Error getting roundtripper")
+		// 	}
+		// 	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, "POST", url)
+		// 	ports := []string{"9090:9090"}
 
-			fw, err := portforward.New(dialer, ports, stopChan, readyChan, nil, os.Stderr)
-			if err != nil {
-				Fail("Error creating new port-forwarding")
-			}
-			err = fw.ForwardPorts()
-			if err != nil {
-				Fail("Error port-forwarding")
-			}
-		}()
-		for {
-			conn, _ := net.DialTimeout("tcp",
-				net.JoinHostPort("", "9090"), time.Millisecond)
-			if conn != nil {
-				conn.Close()
-				break
-			}
-			time.Sleep(time.Millisecond * 50)
-		}
+		// 	fw, err := portforward.New(dialer, ports, stopChan, readyChan, nil, os.Stderr)
+		// 	if err != nil {
+		// 		Fail("Error creating new port-forwarding")
+		// 	}
+		// 	err = fw.ForwardPorts()
+		// 	if err != nil {
+		// 		Fail("Error port-forwarding")
+		// 	}
+		// }()
+		// for {
+		// 	conn, _ := net.DialTimeout("tcp",
+		// 		net.JoinHostPort("", "9090"), time.Millisecond)
+		// 	if conn != nil {
+		// 		conn.Close()
+		// 		break
+		// 	}
+		// 	time.Sleep(time.Millisecond * 50)
+		// }
 
-		// TODO: change to svc
-		address := "http://localhost:9090"
-		_, err = http.Get(address)
+		// // TODO: change to svc
+		// address := "http://localhost:9090"
+		// _, err = http.Get(address)
+		// if err != nil {
+		// 	Fail("Unable to reach prometheus port")
+		// }
+
+		svcList, err := f.ClientSet.CoreV1().Services(ns.Name).List(metav1.ListOptions{
+			LabelSelector: "app=prometheus-server",
+		})
+
+		svcName := svcList.Items[0].Name
+		address := fmt.Sprintf("http://%s.cni-test.svc.cluster.local:9090", svcName)
+		healthz := fmt.Sprintf("%s/healthz", address)
+
+		resp, err := http.Get(healthz)
 		if err != nil {
-			Fail("Unable to reach prometheus port")
+			// Fail("http request to %s failed: %+v\n", svcName, err)
+			Fail("http request to prometheus failed")
+		} else {
+			resp.Body.Close()
 		}
 
 		cfg := promapi.Config{Address: address}
@@ -122,33 +137,15 @@ var _ = Describe("cni-tester", func() {
 			TestTime: testTime, //TODO change
 		}
 	})
-	Context("prom should pass", func() {
-		// It("should get no ipamd errors", func() {
-		// 	log.Info("hi")
 
-		// 	prom.TestTime = time.Now()
-		// 	received, err := prom.Query(ctx, "awscni_ip_max", prom.TestTime)
-		// 	Expect(err).NotTo(HaveOccurred())
-		// 	// Expect(received).NotTo(BeNil())
+	It("Should get 2 ENIs", func() {
+		attachedENIs, err := f.AWSClient.GetAttachedENIs()
+		Expect(err).ShouldNot(HaveOccurred())
+		maxENIs, err := f.AWSClient.GetENILimit()
+		Expect(err).ShouldNot(HaveOccurred())
+		Expect(len(attachedENIs)).To(BeNumerically("<", maxENIs))
+		Expect(len(attachedENIs)).To(Equal(2))
 
-		// 	log.Info(received.(model.Vector)[0].Value)
-		// 	// Expect(received.String()).To(BeNumerically(">", 1))
-
-		// 	dnsRequestFailurePercent, err := prom.Query("cni_test_external_http_request_total",
-		// 		"cni_test_dns_request_failure")
-		// 	Expect(err).NotTo(HaveOccurred())
-		// 	Expect(dnsRequestFailurePercent).NotTo(BeNil())
-		// 	Expect(dnsRequestFailurePercent).To(BeNumerically("<", 0.05))
-		// })
-		It("Should get 2 ENIs", func() {
-			attachedENIs, err := f.AWSClient.GetAttachedENIs()
-			Expect(err).ShouldNot(HaveOccurred())
-			maxENIs, err := f.AWSClient.GetENILimit()
-			Expect(err).ShouldNot(HaveOccurred())
-			Expect(len(attachedENIs)).To(BeNumerically("<", maxENIs))
-			Expect(len(attachedENIs)).To(Equal(2))
-
-		})
 	})
 
 	// It("Should get 2 ENIs", func() {
@@ -163,7 +160,7 @@ var _ = Describe("cni-tester", func() {
 
 	AfterEach(func() {
 		// conn.Close()
-		close(stopChan)
+		// close(stopChan)
 
 		promResources.ExpectCleanupSuccessful(ctx, f, ns)
 	})

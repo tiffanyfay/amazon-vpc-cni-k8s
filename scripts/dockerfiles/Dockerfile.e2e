@@ -1,5 +1,4 @@
-FROM golang:1.12-stretch
-
+FROM golang:1.12-stretch as builder
 WORKDIR /go/src/github.com/aws/amazon-vpc-cni-k8s
 
 ARG arch
@@ -16,9 +15,12 @@ COPY go.sum .
 RUN go mod download
 
 # TODO figure out how to do this with the existing one in mod
-RUN go get github.com/onsi/ginkgo/ginkgo && \
-    curl -o aws-iam-authenticator https://amazon-eks.s3-us-west-2.amazonaws.com/1.12.7/2019-03-27/bin/linux/amd64/aws-iam-authenticator && \
-    chmod +x ./aws-iam-authenticator && \
-    cp aws-iam-authenticator /usr/local/bin/
+RUN go get github.com/onsi/ginkgo/ginkgo 
+# && \
+#    curl -o aws-iam-authenticator https://amazon-eks.s3-us-west-2.amazonaws.com/1.12.7/2019-03-27/bin/linux/amd64/aws-iam-authenticator && \
+#    chmod +x ./aws-iam-authenticator && \
+#    cp aws-iam-authenticator /usr/local/bin/
 
 COPY . .
+
+ENTRYPOINT ginkgo -v test/e2e

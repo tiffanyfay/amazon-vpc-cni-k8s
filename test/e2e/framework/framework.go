@@ -96,7 +96,7 @@ func (f *Framework) cleanupAction() func() {
 }
 
 func (f *Framework) buildRestConfig() (*rest.Config, error) {
-	restCfg, err := clientcmd.BuildConfigFromFlags("", f.Options.KubeConfig)
+	restCfg, err := clientcmd.BuildConfigFromFlags("", "")
 	if err != nil {
 		return nil, err
 	}

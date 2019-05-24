@@ -80,6 +80,8 @@ docker-unit-test: build-docker-test
 		amazon-k8s-cni-test:latest make unit-test
 
 build-docker-e2e:
+	# mkdir .kube/
+	# cp ~/.kube/config .kube/
 	@docker build -f scripts/dockerfiles/Dockerfile.e2e -t amazon-k8s-cni-e2e:latest .
 
 # maybe rename to e2e-test-helper ?

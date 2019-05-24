@@ -1,0 +1,50 @@
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  namespace: cni-test
+  name: cni-e2e
+  labels:
+    app: cni-e2e
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 5
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: cni-e2e
+    spec:
+      serviceAccountName: "testpod"
+      terminationGracePeriodSeconds: 180
+      containers:
+      - name: cni-e2e
+        image: 038954622175.dkr.ecr.us-west-2.amazonaws.com/amazon-k8s-cni-e2e:latest
+        imagePullPolicy: Always
+
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#     name: testpod-clusterip
+#     namespace: cni-test
+# spec: 
+#     selector:
+#         app: testpod
+#     ports:
+#     - port: 8080
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#     name: testpod-pod-ip
+#     namespace: cni-test
+# spec: 
+#     selector:
+#         app: testpod
+#     clusterIP: None
+#     ports:
+#     - port: 8080

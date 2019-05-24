@@ -4,7 +4,7 @@ import (
 	"flag"
 
 	// "github.com/kubernetes-sigs/aws-alb-ingress-controller/internal/ingress/errors"
-	"github.com/pkg/errors"
+
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -33,15 +33,15 @@ func (options *Options) BindFlags() {
 }
 
 func (options *Options) Validate() error {
-	if len(options.KubeConfig) == 0 {
-		return errors.Errorf("%s must be set!", clientcmd.RecommendedConfigPathFlag)
-	}
-	if len(options.ClusterName) == 0 {
-		return errors.Errorf("%s must be set!", "cluster-name")
-	}
-	if len(options.AWSRegion) == 0 {
-		return errors.Errorf("%s must be set!", "aws-region")
-	}
+	// if len(options.KubeConfig) == 0 {
+	// 	return errors.Errorf("%s must be set!", clientcmd.RecommendedConfigPathFlag)
+	// }
+	// if len(options.ClusterName) == 0 {
+	// 	return errors.Errorf("%s must be set!", "cluster-name")
+	// }
+	// if len(options.AWSRegion) == 0 {
+	// 	return errors.Errorf("%s must be set!", "aws-region")
+	// }
 	// if len(options.AWSVPCID) == 0 {
 	// 	return errors.Errorf("%s must be set!", "aws-vpc-id")
 	// }
