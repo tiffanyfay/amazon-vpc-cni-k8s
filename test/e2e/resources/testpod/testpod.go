@@ -1,4 +1,4 @@
-package main
+package testpod
 
 import (
 	"crypto/tls"

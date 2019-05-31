@@ -13,11 +13,13 @@ import (
 )
 
 // Add before and after for setup and delete of pods
+// TODO
 type Resources struct {
 	Deployment *appsv1.Deployment
 	Service    *corev1.Service
 }
 
+// TODO method comment
 func (r *Resources) ExpectDeploymentSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
 	By("create deployment")
 	dp, err := f.ClientSet.AppsV1().Deployments(ns.Name).Create(r.Deployment)
@@ -36,6 +38,7 @@ func (r *Resources) ExpectDeploymentSuccessful(ctx context.Context, f *framework
 	Expect(err).NotTo(HaveOccurred())
 }
 
+// TODO method comment
 func (r *Resources) ExpectCleanupSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
 	By("delete service")
 	err := f.ClientSet.CoreV1().Services(ns.Name).Delete(r.Service.Name, &metav1.DeleteOptions{})

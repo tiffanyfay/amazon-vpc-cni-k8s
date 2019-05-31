@@ -2,18 +2,24 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
-	"github.com/prometheus/common/model"
-
-	// _ "github.com/aws/amazon-vpc-cni-k8s/test/e2e/awsnode"
+	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
+	log "github.com/cihub/seelog"
+	promapi "github.com/prometheus/client_golang/api"
 	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
-	// "k8s.io/kubernetes/test/e2e/framework"
-
+	"github.com/prometheus/common/model"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	PromDeploymentName = "prometheus"
+	PromServiceName    = "prometheus"
 )
 
 // prom holds the created prom v1 API and the time the test runs
@@ -22,7 +28,7 @@ type Prom struct {
 	TestTime time.Time
 }
 
-func NewPromResources(replicas int32) *Resources {
+func NewPromResources(ns string, replicas int32) *Resources {
 	mode := int32(420)
 
 	labels := map[string]string{
@@ -31,8 +37,8 @@ func NewPromResources(replicas int32) *Resources {
 
 	dp := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "prometheus-deployment",
-			Namespace: "cni-test",
+			Name:      PromDeploymentName,
+			Namespace: ns,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
@@ -95,7 +101,8 @@ func NewPromResources(replicas int32) *Resources {
 	// svcType := corev1.ServiceTypeNodePort
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "prometheus",
+			Name:      PromServiceName,
+			Namespace: ns,
 		},
 		Spec: corev1.ServiceSpec{
 			// Type: svcType,
@@ -116,6 +123,40 @@ func NewPromResources(replicas int32) *Resources {
 	}
 }
 
+func NewPromAPI(f *framework.Framework, ns *corev1.Namespace) (promv1.API, error) {
+	podList, err := f.ClientSet.CoreV1().Pods(ns.Name).List(metav1.ListOptions{
+		LabelSelector: "app=prometheus-server",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(podList.Items) == 0 {
+		return nil, errors.New("Error getting prometheus pod(s)")
+	}
+
+	address := fmt.Sprintf("http://%s.%s.svc.cluster.local:9090", PromServiceName, ns.Name)
+	health := fmt.Sprintf("%s/-/healthy", address)
+	resp, err := http.Get(health)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body.Close()
+	log.Infof("healthy %v %v", resp.StatusCode, resp.Status)
+	// TODO maybe handle .Status
+	if resp.StatusCode != 200 {
+		return nil, errors.New("prometheus is not healthy")
+	}
+
+	cfg := promapi.Config{Address: address}
+	client, err := promapi.NewClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return promv1.NewAPI(client), nil
+}
+
+// TODO
 func (p *Prom) QueryPercent(requests string, failures string) (model.SampleValue, error) {
 	// if either is 0 return 0
 	requestsQuery, err := p.API.Query(context.Background(),
@@ -140,17 +181,18 @@ func (p *Prom) QueryPercent(requests string, failures string) (model.SampleValue
 	}
 
 	percent := fmt.Sprintf("sum(%s) / sum(%s)", failures, requests)
-	query, err := p.API.Query(context.Background(),
+	percentQuery, err := p.API.Query(context.Background(),
 		fmt.Sprintf("sum(%s) / sum(%s)", failures, requests), p.TestTime)
 	if err != nil {
 		return 0, err
 	}
-	if len(query.(model.Vector)) != 1 {
+	if len(percentQuery.(model.Vector)) != 1 {
 		return 0, fmt.Errorf("query sum(%s) has no data at time %v", percent, p.TestTime)
 	}
-	return query.(model.Vector)[0].Value, err
+	return percentQuery.(model.Vector)[0].Value, err
 }
 
+// TODO
 func (p *Prom) Query(name string) (model.SampleValue, error) {
 	// if either is 0 return 0
 	query, err := p.API.Query(context.Background(), name, p.TestTime)

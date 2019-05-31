@@ -151,7 +151,9 @@ rules:
       - deployments
       - services
       - endpoints
-      verbs: ["create", "update", "get", "watch", "list"] #todo move create
+      - nodes
+      - jobs
+      verbs: ["create", "update", "delete", "get", "watch", "list"] #todo move create
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

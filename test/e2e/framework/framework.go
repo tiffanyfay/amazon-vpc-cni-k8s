@@ -47,6 +47,7 @@ func New() *Framework {
 	return f
 }
 
+// TODO
 func (f *Framework) BeforeEach() {
 	// The fact that we need this feels like a bug in ginkgo.
 	// https://github.com/onsi/ginkgo/issues/222
@@ -80,6 +81,7 @@ func (f *Framework) BeforeEach() {
 	f.cleanupHandle = AddCleanupAction(f.cleanupAction())
 }
 
+// TODO
 func (f *Framework) AfterEach() {
 	RemoveCleanupAction(f.cleanupHandle)
 

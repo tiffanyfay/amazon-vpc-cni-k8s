@@ -1,4 +1,4 @@
-FROM golang:1.12-stretch as builder
+FROM golang:1.12-stretch
 WORKDIR /go/src/github.com/aws/amazon-vpc-cni-k8s
 
 ARG arch
@@ -23,4 +23,4 @@ RUN go get github.com/onsi/ginkgo/ginkgo
 
 COPY . .
 
-ENTRYPOINT ginkgo -v test/e2e
+ENTRYPOINT ["scripts/e2e.sh"]

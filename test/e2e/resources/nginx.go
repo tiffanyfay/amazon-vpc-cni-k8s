@@ -6,7 +6,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func NewNginxResources(replicas int32) *Resources {
+func NewNginxResources(ns string, replicas int32) *Resources {
 	labels := map[string]string{
 		"app": "nginx",
 	}
@@ -14,7 +14,7 @@ func NewNginxResources(replicas int32) *Resources {
 	dp := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "nginx",
-			Namespace: "cni-test",
+			Namespace: ns,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
@@ -44,7 +44,8 @@ func NewNginxResources(replicas int32) *Resources {
 	// svcType := corev1.ServiceTypeNodePort
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "nginx",
+			Name:      "nginx",
+			Namespace: ns,
 		},
 		Spec: corev1.ServiceSpec{
 			// Type: svcType,
