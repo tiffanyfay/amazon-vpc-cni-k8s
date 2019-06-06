@@ -1,15 +1,29 @@
 FROM golang:1.12-stretch as builder
 
-RUN mkdir /app
-ADD . /app # todo make this just testpod.go
-WORKDIR /app
-RUN CGO_ENABLED=0 go build -o testpod testpod.go
+WORKDIR /go/src/github.com/aws/amazon-vpc-cni-k8s
+
+ARG arch
+ENV ARCH=$arch
+
+# Force the go compiler to use modules.
+ENV GO111MODULE=on
+
+# go.mod and go.sum go into their own layers.
+COPY go.mod .
+COPY go.sum .
+
+# This ensures `go mod download` happens only when go.mod and go.sum change.
+RUN go mod download
+
+
+RUN mkdir /testpod
+ADD test/e2e/resources/testpod/app.go /testpod
+RUN CGO_ENABLED=0 go build -o testpod /testpod/app.go
 
 FROM alpine
 
 RUN apk add bind-tools curl 
-# TODO: apk install some networking tools (dig/curl etc) bind-tools has dig
 RUN mkdir /app
-COPY --from=builder /app/testpod /app/testpod
+COPY --from=builder /go/src/github.com/aws/amazon-vpc-cni-k8s/testpod /app/testpod
 WORKDIR /app
 CMD ["/app/testpod"]

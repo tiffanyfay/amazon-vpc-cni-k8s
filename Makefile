@@ -80,21 +80,13 @@ docker-unit-test: build-docker-test
 		amazon-k8s-cni-test:latest make unit-test
 
 build-docker-e2e:
-	# mkdir .kube/
-	# cp ~/.kube/config .kube/
-	@docker build -f scripts/dockerfiles/Dockerfile.e2e -t amazon-k8s-cni-e2e:latest .
+	@docker build --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.e2e -t "amazon-k8s-cni-e2e:$(VERSION)" .
+	@echo "Built Docker image \"amazon-k8s-cni-e2e:$(VERSION)\""
 
 # maybe rename to e2e-test-helper ?
-docker-testpod:
-	@docker build --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.testpod -t "amazon/cni-testpod:$(VERSION)" .
-	@echo "Built Docker image \"amazon/cni-testpod:$(VERSION)\""
-
-# TODO: remove GOOS? Take in inputs for cluster-name, region, etc
-docker-e2e-test: build-docker-e2e
-	docker run -v $(KUBECONFIG):/root/.kube/config:ro \
-		-v $(HOME)/.aws/:/root/.aws/:ro \
-		-e GO111MODULE=on amazon-k8s-cni-e2e:latest \
-		ginkgo -v test/e2e -- --kubeconfig=/root/.kube/config --cluster-name=firenze --aws-region=us-west-2
+build-docker-testpod:
+	@docker build --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.testpod -t "cni-testpod:$(VERSION)" .
+	@echo "Built Docker image \"cni-testpod:$(VERSION)\""
 
 # Build metrics
 build-metrics:

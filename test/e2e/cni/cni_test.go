@@ -6,7 +6,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
-
 	// corev1 "k8s.io/api/core/v1"
 	// metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -14,7 +13,7 @@ import (
 // Timeout for waiting events in seconds
 // const TIMEOUT = 60
 var (
-	f  *framework.Framework
+	f *framework.Framework
 	// ns *corev1.Namespace
 	// promResources *resources.Resources
 	// prom          *resources.Prom
@@ -31,68 +30,6 @@ var _ = Describe("cni-tester", func() {
 	// 	ctx context.Context
 	// 	// conn net.Conn
 	// )
-
-	// stopChan := make(chan struct{}, 1)
-	// readyChan := make(chan struct{})
-
-	// It("portforward new should be nil", func() { //TODO edit caption
-	// 	Expect(err).To(BeNil()) // check this vs notto have occurred
-	// })
-
-	// BeforeEach(func() {
-	// 	log.Infof("count %d", count)
-	// 	count++
-	// 	var err error
-	// 	ctx = context.Background()
-	// 	// ns, err = f.ResourceManager.CreateNamespace(context.TODO(), "cni-test")
-	// 	// Expect(err).NotTo(HaveOccurred())
-
-	// 	promResources = resources.NewPromResources(ns.Name, promReplicas)
-	// 	promResources.ExpectDeploymentSuccessful(ctx, f, ns)
-
-	// 	podList, err := f.ClientSet.CoreV1().Pods(ns.Name).List(metav1.ListOptions{
-	// 		LabelSelector: "app=prometheus-server",
-	// 	})
-	// 	if err != nil {
-	// 		Fail("Error listing prometheus pod(s)")
-	// 	}
-
-	// 	if len(podList.Items) == 0 {
-	// 		Fail("Error getting prometheus pod(s)")
-	// 	}
-	// 	// podName := podList.Items[0].Name
-	// 	// podNameSpace := podList.Items[0].Namespace
-
-	// 	// // port forwarding
-	// 	// go func() {
-	// 	// 	req := f.ClientSet.CoreV1().RESTClient().Post().Resource("pods").
-	// 	// 		Namespace(podNameSpace).Name(podName).SubResource("portforward")
-	// 	// 	url := req.URL()
-	// 	// 	transport, upgrader, err := spdy.RoundTripperFor(f.Config)
-	// 	// 	if err != nil {
-	// 	// 		Fail("Error getting roundtripper")
-	// 	// 	}
-	// 	// 	dialer := spdy.NewDialer(upgrader, &http.Client{Transport: transport}, "POST", url)
-	// 	// 	ports := []string{"9090:9090"}
-
-	// 	// 	fw, err := portforward.New(dialer, ports, stopChan, readyChan, nil, os.Stderr)
-	// 	// 	if err != nil {
-	// 	// 		Fail("Error creating new port-forwarding")
-	// 	// 	}
-	// 	// 	err = fw.ForwardPorts()
-	// 	// 	if err != nil {
-	// 	// 		Fail("Error port-forwarding")
-	// 	// 	}
-	// 	// }()
-	// 	// for {
-	// 	// 	conn, _ := net.DialTimeout("tcp",
-	// 	// 		net.JoinHostPort("", "9090"), time.Millisecond)
-	// 	// 	if conn != nil {
-	// 	// 		conn.Close()
-	// 	// 		break
-	// 	// 	}
-	// 	// 	time.Sleep(time.Millisecond * 50)
-	// 	// }
 
 	// 	// // TODO: change to svc
 	// 	// address := "http://localhost:9090"
@@ -159,6 +96,6 @@ var _ = Describe("cni-tester", func() {
 		// conn.Close()
 		// close(stopChan)
 
-		// promResources.ExpectCleanupSuccessful(ctx, f, ns)
+		promResources.ExpectCleanupSuccessful(ctx, f, ns)
 	})
 })
