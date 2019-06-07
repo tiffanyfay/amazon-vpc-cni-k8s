@@ -1,7 +1,6 @@
 package cni_test
 
 import (
-	log "github.com/cihub/seelog"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -72,7 +71,6 @@ var _ = Describe("cni-tester", func() {
 	// })
 
 	It("Should get 2 ENIs", func() {
-		log.Debug("blah 2 enis")
 		attachedENIs, err := f.AWSClient.GetAttachedENIs()
 		Expect(err).ShouldNot(HaveOccurred())
 		maxENIs, err := f.AWSClient.GetENILimit()
@@ -93,9 +91,6 @@ var _ = Describe("cni-tester", func() {
 	// })
 
 	AfterEach(func() {
-		// conn.Close()
-		// close(stopChan)
-
-		promResources.ExpectCleanupSuccessful(ctx, f, ns)
+		// promResources.ExpectCleanupSuccessful(ctx, f, ns)
 	})
 })

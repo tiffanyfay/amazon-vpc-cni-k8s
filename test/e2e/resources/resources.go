@@ -14,9 +14,10 @@ import (
 
 // Add before and after for setup and delete of pods
 // TODO
+
 type Resources struct {
 	Deployment *appsv1.Deployment
-	Service    *corev1.Service
+	Services   []*corev1.Service
 }
 
 // TODO method comment
@@ -25,9 +26,11 @@ func (r *Resources) ExpectDeploymentSuccessful(ctx context.Context, f *framework
 	dp, err := f.ClientSet.AppsV1().Deployments(ns.Name).Create(r.Deployment)
 	Expect(err).NotTo(HaveOccurred())
 
-	By("create service")
-	svc, err := f.ClientSet.CoreV1().Services(ns.Name).Create(r.Service)
-	Expect(err).NotTo(HaveOccurred())
+	By("create service(s)")
+	for service := range r.Services {
+		svc, err := f.ClientSet.CoreV1().Services(ns.Name).Create(service)
+		Expect(err).NotTo(HaveOccurred())
+	}
 
 	By("wait deployment")
 	dp, err = f.ResourceManager.WaitDeploymentReady(ctx, dp)
@@ -40,9 +43,11 @@ func (r *Resources) ExpectDeploymentSuccessful(ctx context.Context, f *framework
 
 // TODO method comment
 func (r *Resources) ExpectCleanupSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
-	By("delete service")
-	err := f.ClientSet.CoreV1().Services(ns.Name).Delete(r.Service.Name, &metav1.DeleteOptions{})
-	Expect(err).NotTo(HaveOccurred())
+	By("delete service(s)")
+	for service := range r.Services {
+		err := f.ClientSet.CoreV1().Services(ns.Name).Delete(service.Name, &metav1.DeleteOptions{})
+		Expect(err).NotTo(HaveOccurred())
+	}
 
 	By("delete deployment")
 	err = f.ClientSet.AppsV1().Deployments(ns.Name).Delete(r.Deployment.Name, &metav1.DeleteOptions{})

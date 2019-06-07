@@ -15,15 +15,15 @@ COPY go.sum .
 # This ensures `go mod download` happens only when go.mod and go.sum change.
 RUN go mod download
 
-
-RUN mkdir /testpod
-ADD test/e2e/resources/testpod/app.go /testpod
-RUN CGO_ENABLED=0 go build -o testpod /testpod/app.go
+# Create testpod
+RUN mkdir /app
+ADD test/e2e/resources/testpod/testpod.go /app
+RUN CGO_ENABLED=0 go build -o /app/testpod /app/testpod.go
 
 FROM alpine
 
 RUN apk add bind-tools curl 
 RUN mkdir /app
-COPY --from=builder /go/src/github.com/aws/amazon-vpc-cni-k8s/testpod /app/testpod
+COPY --from=builder /app/testpod /app/testpod
 WORKDIR /app
 CMD ["/app/testpod"]

@@ -98,6 +98,7 @@ func NewPromResources(ns string, replicas int32) *Resources {
 		},
 	}
 
+	svcs := []*coreV1.Service{}
 	// svcType := corev1.ServiceTypeNodePort
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -117,9 +118,11 @@ func NewPromResources(ns string, replicas int32) *Resources {
 		},
 	}
 
+	svcs = append(svcs, svc)
+
 	return &Resources{
 		Deployment: dp,
-		Service:    svc,
+		Services:   svcs,
 	}
 }
 
