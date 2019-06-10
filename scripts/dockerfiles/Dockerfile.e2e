@@ -1,6 +1,9 @@
 FROM golang:1.12-stretch
 WORKDIR /go/src/github.com/aws/amazon-vpc-cni-k8s
 
+RUN printf "nameserver 10.100.0.10\nsearch default.svc.cluster.local svc.cluster.local cluster.local us-west-2.compute.internal\noptions ndots:5" > /etc/resolv.conf
+
+
 ARG arch
 ENV ARCH=$arch
 

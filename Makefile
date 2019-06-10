@@ -45,7 +45,7 @@ download-portmap:
 
 # Build CNI Docker image
 docker:
-	@docker build --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.release -t "$(IMAGE):$(VERSION)" .
+	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.release -t "$(IMAGE):$(VERSION)" .
 	@echo "Built Docker image \"$(IMAGE):$(VERSION)\""
 
 build-docker-test:
@@ -80,12 +80,12 @@ docker-unit-test: build-docker-test
 		amazon-k8s-cni-test:latest make unit-test
 
 build-docker-e2e:
-	@docker build --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.e2e -t "amazon/cni-e2e:$(VERSION)" .
+	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.e2e -t "amazon/cni-e2e:$(VERSION)" .
 	@echo "Built Docker image \"amazon/cni-e2e:$(VERSION)\""
 
 # maybe rename to e2e-test-helper ?
 build-docker-testpod:
-	@docker build --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.testpod -t "amazon/cni-testpod:$(VERSION)" .
+	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.testpod -t "amazon/cni-testpod:$(VERSION)" .
 	@echo "Built Docker image \"amazon/cni-testpod:$(VERSION)\""
 
 # Build metrics
