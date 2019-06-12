@@ -80,13 +80,13 @@ docker-unit-test: build-docker-test
 		amazon-k8s-cni-test:latest make unit-test
 
 build-docker-e2e:
-	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.e2e -t "amazon/cni-e2e:$(VERSION)" .
-	@echo "Built Docker image \"amazon/cni-e2e:$(VERSION)\""
+	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.e2e -t "amazon-k8s-cni-e2e-test:$(VERSION)" .
+	@echo "Built Docker image \"amazon-k8s-cni-e2e-test:$(VERSION)\""
 
 # maybe rename to e2e-test-helper ?
 build-docker-testpod:
-	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.testpod -t "amazon/cni-testpod:$(VERSION)" .
-	@echo "Built Docker image \"amazon/cni-testpod:$(VERSION)\""
+	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.testpod -t "amazon-k8s-cni-testpod:$(VERSION)" .
+	@echo "Built Docker image \"amazon-k8s-cni-testpod:$(VERSION)\""
 
 # Build metrics
 build-metrics:

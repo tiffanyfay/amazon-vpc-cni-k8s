@@ -1,9 +1,6 @@
 FROM golang:1.12-stretch
 WORKDIR /go/src/github.com/aws/amazon-vpc-cni-k8s
 
-RUN printf "nameserver 10.100.0.10\nsearch default.svc.cluster.local svc.cluster.local cluster.local us-west-2.compute.internal\noptions ndots:5" > /etc/resolv.conf
-
-
 ARG arch
 ENV ARCH=$arch
 
@@ -17,12 +14,8 @@ COPY go.sum .
 # This ensures `go mod download` happens only when go.mod and go.sum change.
 RUN go mod download
 
-# TODO figure out how to do this with the existing one in mod
+# TODO use the existing ginkgo in the go mod dir
 RUN go get github.com/onsi/ginkgo/ginkgo 
-# && \
-#    curl -o aws-iam-authenticator https://amazon-eks.s3-us-west-2.amazonaws.com/1.12.7/2019-03-27/bin/linux/amd64/aws-iam-authenticator && \
-#    chmod +x ./aws-iam-authenticator && \
-#    cp aws-iam-authenticator /usr/local/bin/
 
 COPY . .
 
