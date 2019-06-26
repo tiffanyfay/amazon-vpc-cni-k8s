@@ -36,6 +36,25 @@ type Framework struct {
 	cleanupHandle CleanupActionHandle
 }
 
+func NewFastFramework() *Framework {
+	var err error
+
+	f := &Framework{Options: globalOptions}
+
+	f.Config, err = f.buildRestConfig()
+	Expect(err).NotTo(HaveOccurred())
+
+	f.ClientSet, err = clientset.NewForConfig(f.Config)
+	Expect(err).NotTo(HaveOccurred())
+
+	f.AWSClient, err = awsutils.New()
+	Expect(err).NotTo(HaveOccurred())
+
+	f.ResourceManager = resource.NewManager(f.ClientSet)
+
+	return f
+}
+
 // New makes a new framework and sets up a BeforeEach/AfterEach for you.
 func New() *Framework {
 	f := &Framework{
