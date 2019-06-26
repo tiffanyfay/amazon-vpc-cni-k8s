@@ -2,6 +2,7 @@ package framework
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/aws/amazon-vpc-cni-k8s/pkg/awsutils"
 
@@ -58,6 +59,7 @@ func (f *Framework) BeforeEach() {
 		f.Config = restCfg // TODO delete me
 		f.ClientSet, err = clientset.NewForConfig(restCfg)
 		Expect(err).NotTo(HaveOccurred())
+		fmt.Printf("Making client; %v\n", f.ClientSet)
 	}
 	// if f.Cloud == nil {
 	// 	// reg := prometheus.NewRegistry()

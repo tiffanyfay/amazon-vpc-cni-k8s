@@ -6,10 +6,14 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func NewTestpodResources(ns string, replicas int32) *Resources {
 	app := "testpod"
+	maxUnavailable := intstr.FromInt(1)
+	maxSurge := intstr.FromInt(5)
+
 	labels := map[string]string{
 		"app": "testpod",
 	}
@@ -52,14 +56,14 @@ func NewTestpodResources(ns string, replicas int32) *Resources {
 			Strategy: appsv1.DeploymentStrategy{
 				Type: appsv1.RollingUpdateDeploymentStrategyType,
 				RollingUpdate: &appsv1.RollingUpdateDeployment{
-					MaxUnavailable: 1,
-					MaxSurge:       5,
+					MaxUnavailable: &maxUnavailable,
+					MaxSurge:       &maxSurge,
 				},
 			},
 		},
 	}
 
-	svcs := []*coreV1.Service{}
+	svcs := []*corev1.Service{}
 	// svcType := corev1.ServiceTypeNodePort
 	svcClusterIP := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -79,6 +83,8 @@ func NewTestpodResources(ns string, replicas int32) *Resources {
 		},
 	}
 
+	svcs = append(svcs, svcClusterIP)
+
 	svcPodIP := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "testpod-pod-ip",
@@ -97,6 +103,8 @@ func NewTestpodResources(ns string, replicas int32) *Resources {
 			},
 		},
 	}
+
+	svcs = append(svcs, svcPodIP)
 
 	return &Resources{
 		Deployment: dp,

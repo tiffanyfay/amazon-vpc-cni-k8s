@@ -4,7 +4,7 @@ set -ux
 IFS=$'\n\t'
 
 TEST="$1"
-NO_EXIT="$2"
+NO_EXIT="$2" # TODO handle if it doesn't exist
 
 OUT_PATH="/tmp/cni-e2e"
 LOG_PATH="$OUT_PATH/plugins/e2e/results"

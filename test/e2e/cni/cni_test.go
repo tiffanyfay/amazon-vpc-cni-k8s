@@ -1,96 +1,134 @@
 package cni_test
 
 import (
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"context"
+	"fmt"
+	"sync"
+	"time"
 
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
-	// corev1 "k8s.io/api/core/v1"
-	// metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/resources"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Timeout for waiting events in seconds
 // const TIMEOUT = 60
 var (
-	f *framework.Framework
-	// ns *corev1.Namespace
-	// promResources *resources.Resources
-	// prom          *resources.Prom
-	// promAPI       promv1.API
-	// count int
+	f                *framework.Framework
+	ns               *corev1.Namespace
+	promResources    *resources.Resources
+	testpodResources *resources.Resources
+	prom             *resources.Prom
+	promAPI          promv1.API
+	err              error
+	testTime         time.Time
+	once             sync.Once
 )
 
 var _ = Describe("cni-tester", func() {
-	f := framework.New()
-	// promReplicas := int32(1)
-	// ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "cni-test"}}
+	Context("run cni-e2e", func() {
+		f = framework.New()
+		//promReplicas := int32(1)
+		limit := 0.1
+		ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "cni-test"}}
 
-	// var (
-	// 	ctx context.Context
-	// 	// conn net.Conn
-	// )
+		ctx := context.Background()
 
-	// 	// // TODO: change to svc
-	// 	// address := "http://localhost:9090"
-	// 	// _, err = http.Get(address)
-	// 	// if err != nil {
-	// 	// 	Fail("Unable to reach prometheus port")
-	// 	// }
+		BeforeEach(func() {
+			once.Do(func() {
+				// promResources = resources.NewPromResources(ns.Name, promReplicas)
+				// promResources.ExpectDeploymentSuccessful(ctx, f, ns)
 
-	// 	// svcList, err := f.ClientSet.CoreV1().Services(ns.Name).List(metav1.ListOptions{
-	// 	// 	LabelSelector: "app=prometheus-server",
-	// 	// })
+				// time.Sleep(time.Second * 5)
 
-	// 	address := fmt.Sprintf("http://%s.cni-test.svc.cluster.local:9090", resources.PromServiceName)
-	// 	health := fmt.Sprintf("%s/-/healthy", address)
+				if promAPI == nil {
+					promAPI, err = resources.NewPromAPI(f, ns)
+					Expect(err).NotTo(HaveOccurred()) // TODO make sure this kills the test
 
-	// 	resp, err := http.Get(health)
-	// 	if err != nil {
-	// 		// Fail("http request to %s failed: %+v\n", svcName, err)
-	// 		Fail("http request to prometheus failed")
-	// 	} else {
-	// 		resp.Body.Close()
-	// 		log.Infof("healthy %v %v", resp.StatusCode, resp.Status)
-	// 		if resp.StatusCode != 200 {
-	// 			Fail("prometheus is not healthy")
-	// 		}
-	// 	}
+					time.Sleep(time.Second * 5)
+					testTime = time.Now() // TODO delete
 
-	// 	cfg := promapi.Config{Address: address}
-	// 	client, err := promapi.NewClient(cfg)
-	// 	Expect(err).NotTo(HaveOccurred())
+					prom = &resources.Prom{
+						API:      promAPI,
+						TestTime: testTime, //TODO change
+					}
+				}
 
-	// 	promAPI = promv1.NewAPI(client) // TODO does it exit from here if this fails?
-	// 	time.Sleep(time.Second * 5)
-	// 	testTime := time.Now() // TODO delete
-	// 	prom = &resources.Prom{
-	// 		API:      promAPI,
-	// 		TestTime: testTime, //TODO change
-	// 	}
-	// 	log.Debug("prom resources")
-	// })
+				testpodResources := resources.NewTestpodResources(ns.Name, 6)
+				testpodResources.ExpectDeploymentSuccessful(ctx, f, ns)
+			})
+		})
 
-	It("Should get 2 ENIs", func() {
-		attachedENIs, err := f.AWSClient.GetAttachedENIs()
-		Expect(err).ShouldNot(HaveOccurred())
-		maxENIs, err := f.AWSClient.GetENILimit()
-		Expect(err).ShouldNot(HaveOccurred())
-		Expect(len(attachedENIs)).To(BeNumerically("<", maxENIs))
-		Expect(len(attachedENIs)).To(Equal(2))
+		It("should get number of events received", func() {
+			// TODO: set it for some # of expected requests?
+			received, err := prom.Query("cni_test_received_total")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(received).NotTo(BeNil())
+		})
 
-	})
+		It("should get dnsRequestFailurePercent below limit", func() {
+			dnsRequestFailurePercent, err := prom.QueryPercent("cni_test_external_http_request_total", "cni_test_dns_request_failure")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(dnsRequestFailurePercent).NotTo(BeNil())
+			Expect(dnsRequestFailurePercent).To(BeNumerically("<", limit))
+		})
 
-	// It("Should get 2 ENIs", func() {
-	// 	attachedENIs, err := f.AWSClient.GetAttachedENIs()
-	// 	Expect(err).ShouldNot(HaveOccurred())
-	// 	maxENIs, err := f.AWSClient.GetENILimit()
-	// 	Expect(err).ShouldNot(HaveOccurred())
-	// 	Expect(len(attachedENIs)).To(BeNumerically("<", maxENIs))
-	// 	Expect(len(attachedENIs)).To(Equal(2))
+		It("should get externalHTTPRequestsFailurePercent below limit", func() {
+			externalHTTPRequestsFailurePercent, err := prom.QueryPercent("cni_test_external_http_request_total", "cni_test_external_http_request_failure")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(externalHTTPRequestsFailurePercent).NotTo(BeNil())
+			Expect(externalHTTPRequestsFailurePercent).To(BeNumerically("<", limit))
+		})
 
-	// })
+		It("should get svcClusterIPRequestFailurePercent below limit QueryPercent", func() {
+			svcClusterIPRequestFailurePercent, err := prom.QueryPercent("cni_test_cluster_ip_request_total", "cni_test_cluster_ip_request_failure")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(svcClusterIPRequestFailurePercent).NotTo(BeNil())
+			Expect(svcClusterIPRequestFailurePercent).To(BeNumerically("<", limit))
+		})
 
-	AfterEach(func() {
-		// promResources.ExpectCleanupSuccessful(ctx, f, ns)
+		It("should get svcPodIPRequestsFailurePercent below limit", func() {
+			svcPodIPRequestsFailurePercent, err := prom.QueryPercent("cni_test_external_http_request_total", "cni_test_external_http_request_failure")
+			fmt.Println(svcPodIPRequestsFailurePercent)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(svcPodIPRequestsFailurePercent).NotTo(BeNil())
+			Expect(svcPodIPRequestsFailurePercent).To(BeNumerically("<", limit))
+		})
+
+		It("awsCNIAWSAPIErrorCount should be 0", func() {
+			QueryPercent, err := prom.Query("awscni_aws_api_error_count")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(QueryPercent).NotTo(BeNil())
+			Expect(QueryPercent).To(BeNumerically("<=", 5))
+		})
+
+		It("Should get 2 ENIs", func() {
+			attachedENIs, err := f.AWSClient.GetAttachedENIs()
+			Expect(err).ShouldNot(HaveOccurred())
+			maxENIs, err := f.AWSClient.GetENILimit()
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(len(attachedENIs)).To(BeNumerically("<", maxENIs))
+			Expect(len(attachedENIs)).To(Equal(2))
+		})
+
+		// It("Should get 2 ENIs", func() {
+		// 	attachedENIs, err := f.AWSClient.GetAttachedENIs()
+		// 	Expect(err).ShouldNot(HaveOccurred())
+		// 	maxENIs, err := f.AWSClient.GetENILimit()
+		// 	Expect(err).ShouldNot(HaveOccurred())
+		// 	Expect(len(attachedENIs)).To(BeNumerically("<", maxENIs))
+		// 	Expect(len(attachedENIs)).To(Equal(2))
+		// })
+
+		//promResources.ExpectCleanupSuccessful(ctx, f, ns)
+		//testpodResources.ExpectDeploymentSuccessful(ctx, f, ns)
+
+		AfterEach(func() {
+			// promResources.ExpectCleanupSuccessful(ctx, f, ns)
+		})
 	})
 })

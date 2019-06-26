@@ -1,28 +1,25 @@
 ---
-apiVersion: batch/v1
-kind: Job
+apiVersion: v1
+kind: Pod
 metadata:
   namespace: cni-test
   name: cni-e2e
   labels:
     app: cni-e2e
 spec:
-  template:
-    # metadata:
-    # labels:
-    #   app: cni-e2e
-    spec:
-      serviceAccountName: "testpod"
-      terminationGracePeriodSeconds: 180
-      containers:
-      - name: cni-e2e
-        image: 038954622175.dkr.ecr.us-west-2.amazonaws.com/amazon-k8s-cni-e2e:latest
-        imagePullPolicy: Always
-        command: ["test/e2e/cni"]
-      restartPolicy: Never
-  backoffLimit: 4
-
-
+  hostNetwork: true
+  serviceAccountName: "testpod"
+  terminationGracePeriodSeconds: 180
+  restartPolicy: Never
+  containers:
+  - name: cni-e2e
+    image: 038954622175.dkr.ecr.us-west-2.amazonaws.com/amazon-k8s-cni-e2e:latest
+    imagePullPolicy: Always
+    args: ["test/e2e/cni", "false"]
+    env: 
+    - name: TESTPOD_IMAGE_URI
+      value: 038954622175.dkr.ecr.us-west-2.amazonaws.com/k8s-prow/amazon-k8s-cni-testpod:v1.3.0-249-g4e4a76cd
+      
 
 # ---
 # apiVersion: apps/v1

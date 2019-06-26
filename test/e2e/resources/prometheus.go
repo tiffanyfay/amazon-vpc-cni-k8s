@@ -98,7 +98,7 @@ func NewPromResources(ns string, replicas int32) *Resources {
 		},
 	}
 
-	svcs := []*coreV1.Service{}
+	svcs := []*corev1.Service{}
 	// svcType := corev1.ServiceTypeNodePort
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
