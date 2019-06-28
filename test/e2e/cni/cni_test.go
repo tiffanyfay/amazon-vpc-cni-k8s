@@ -25,20 +25,22 @@ var (
 	promAPI          promv1.API
 	err              error
 	testTime         time.Time
+	limit            float32
 )
 
-var _ = Describe("cni-tester", func() {
+var _ = BeforeSuite(func() {
 	var promReplicas int32 = 1
-	var limit float32 = 0.1
+	limit = 0.1
 
-	f = framework.NewFastFramework()
+	f, err = framework.NewFastFramework()
+	if err != nil {
+		panic(err.Error())
+	}
 	ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "cni-test"}}
 	ctx := context.Background()
 
 	promResources = resources.NewPromResources(ns.Name, promReplicas)
 	promResources.ExpectDeploymentSuccessful(ctx, f, ns)
-
-	time.Sleep(time.Second * 5)
 
 	promAPI, err = resources.NewPromAPI(f, ns)
 	Expect(err).NotTo(HaveOccurred()) // TODO: make sure this kills the test
@@ -52,6 +54,36 @@ var _ = Describe("cni-tester", func() {
 
 	testpodResources := resources.NewTestpodResources(ns.Name, 6)
 	testpodResources.ExpectDeploymentSuccessful(ctx, f, ns)
+})
+
+var _ = Describe("cni-tester", func() {
+	// var promReplicas int32 = 1
+	// var limit float32 = 0.1
+
+	// f, err = framework.NewFastFramework()
+	// if err != nil {
+	// 	panic(err.Error())
+	// }
+	// ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "cni-test"}}
+	// ctx := context.Background()
+
+	// promResources = resources.NewPromResources(ns.Name, promReplicas)
+	// promResources.ExpectDeploymentSuccessful(ctx, f, ns)
+
+	// time.Sleep(time.Second * 5)
+
+	// promAPI, err = resources.NewPromAPI(f, ns)
+	// Expect(err).NotTo(HaveOccurred()) // TODO: make sure this kills the test
+
+	// time.Sleep(time.Second * 5)
+
+	// prom = &resources.Prom{
+	// 	API:      promAPI,
+	// 	TestTime: time.Now(),
+	// }
+
+	// testpodResources := resources.NewTestpodResources(ns.Name, 6)
+	// testpodResources.ExpectDeploymentSuccessful(ctx, f, ns)
 
 	It("should get number of events received", func() {
 		// TODO: set it for some # of expected requests?

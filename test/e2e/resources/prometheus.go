@@ -127,6 +127,8 @@ func NewPromResources(ns string, replicas int32) *Resources {
 }
 
 func NewPromAPI(f *framework.Framework, ns *corev1.Namespace) (promv1.API, error) {
+	var resp *http.Response
+
 	podList, err := f.ClientSet.CoreV1().Pods(ns.Name).List(metav1.ListOptions{
 		LabelSelector: "app=prometheus-server",
 	})
@@ -138,9 +140,22 @@ func NewPromAPI(f *framework.Framework, ns *corev1.Namespace) (promv1.API, error
 		return nil, errors.New("Error getting prometheus pod(s)")
 	}
 
+	// Check if prometheus is healthy
 	address := fmt.Sprintf("http://%s.%s.svc.cluster.local:9090", PromServiceName, ns.Name)
 	health := fmt.Sprintf("%s/-/healthy", address)
-	resp, err := http.Get(health)
+
+	var i int
+	for {
+		log.Infof("attempt %d", i)
+		resp, err = http.Get(health)
+		if err == nil {
+			break
+		} else {
+			fmt.Println(err.Error())
+		}
+		time.Sleep(time.Second * 5)
+		i++
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -151,6 +166,7 @@ func NewPromAPI(f *framework.Framework, ns *corev1.Namespace) (promv1.API, error
 		return nil, errors.New("prometheus is not healthy")
 	}
 
+	// Create prometheus client and API
 	cfg := promapi.Config{Address: address}
 	client, err := promapi.NewClient(cfg)
 	if err != nil {

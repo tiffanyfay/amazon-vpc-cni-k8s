@@ -36,23 +36,32 @@ type Framework struct {
 	cleanupHandle CleanupActionHandle
 }
 
-func NewFastFramework() *Framework {
+func NewFastFramework() (*Framework, error) {
 	var err error
 
 	f := &Framework{Options: globalOptions}
 
 	f.Config, err = f.buildRestConfig()
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		fmt.Println("Failed to make config")
+		return nil, err
+	}
 
 	f.ClientSet, err = clientset.NewForConfig(f.Config)
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		fmt.Println("failed to make clientset")
+		return nil, err
+	}
 
 	f.AWSClient, err = awsutils.New()
-	Expect(err).NotTo(HaveOccurred())
+	if err != nil {
+		fmt.Println("failed to make aws client")
+		return nil, err
+	}
 
 	f.ResourceManager = resource.NewManager(f.ClientSet)
 
-	return f
+	return f, nil
 }
 
 // New makes a new framework and sets up a BeforeEach/AfterEach for you.
