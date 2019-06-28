@@ -25,5 +25,4 @@ FROM alpine
 RUN apk add bind-tools curl 
 RUN mkdir /app
 COPY --from=builder /app/testpod /app/testpod
-WORKDIR /app
 CMD ["/app/testpod"]

@@ -144,17 +144,12 @@ func NewPromAPI(f *framework.Framework, ns *corev1.Namespace) (promv1.API, error
 	address := fmt.Sprintf("http://%s.%s.svc.cluster.local:9090", PromServiceName, ns.Name)
 	health := fmt.Sprintf("%s/-/healthy", address)
 
-	var i int
-	for {
-		log.Infof("attempt %d", i)
+	for i; i < 3; i++ {
 		resp, err = http.Get(health)
 		if err == nil {
 			break
-		} else {
-			fmt.Println(err.Error())
 		}
 		time.Sleep(time.Second * 5)
-		i++
 	}
 	if err != nil {
 		return nil, err
