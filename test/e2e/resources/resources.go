@@ -53,14 +53,14 @@ func (r *Resources) ExpectCleanupSuccessful(ctx context.Context, f *framework.Fr
 	Expect(err).NotTo(HaveOccurred())
 }
 
-// // TODO method comment
-// func (r *Resources) ExpectDeploymentScaleSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace, replicas int32) {
-// 	By("scale deployment")
-// 	scale, err := f.ClientSet.AppsV1().Deployments(ns.Name).GetScale(r.Deployment.Name, &metav1.GetOptions{})
-// 	scale.Spec.Replicas = replicas
-// 	scale, err = f.ClientSet.AppsV1().Deployments(ns.Name).UpdateScale(r.Deployment.Name, &scale)
+// TODO method comment
+func (r *Resources) ExpectDeploymentScaleSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace, replicas int32) {
+	By("scale deployment")
+	scale, err := f.ClientSet.AppsV1().Deployments(ns.Name).GetScale(r.Deployment.Name, &metav1.GetOptions{})
+	scale.Spec.Replicas = replicas
+	scale, err = f.ClientSet.AppsV1().Deployments(ns.Name).UpdateScale(r.Deployment.Name, &scale)
 
-// 	By("wait deployment")
-// 	dp, err = f.ResourceManager.WaitDeploymentReady(ctx, r.Deployment)
-// 	Expect(err).NotTo(HaveOccurred())
-// }
+	By("wait deployment")
+	dp, err = f.ResourceManager.WaitDeploymentReady(ctx, r.Deployment)
+	Expect(err).NotTo(HaveOccurred())
+}

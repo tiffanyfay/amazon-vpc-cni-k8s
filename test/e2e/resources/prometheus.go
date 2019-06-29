@@ -20,12 +20,12 @@ import (
 const (
 	PromDeploymentName = "prometheus"
 	PromServiceName    = "prometheus"
+	PromImage          = "prom/prometheus:v2.1.0"
 )
 
 // prom holds the created prom v1 API and the time the test runs
 type Prom struct {
-	API      promv1.API
-	TestTime time.Time
+	API promv1.API
 }
 
 func NewPromResources(ns string, replicas int32) *Resources {
@@ -52,7 +52,7 @@ func NewPromResources(ns string, replicas int32) *Resources {
 					Containers: []corev1.Container{
 						{
 							Name:  "prometheus",
-							Image: "prom/prometheus:v2.1.0",
+							Image: PromImage,
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 9090,
@@ -144,7 +144,7 @@ func NewPromAPI(f *framework.Framework, ns *corev1.Namespace) (promv1.API, error
 	address := fmt.Sprintf("http://%s.%s.svc.cluster.local:9090", PromServiceName, ns.Name)
 	health := fmt.Sprintf("%s/-/healthy", address)
 
-	for i; i < 3; i++ {
+	for i := 0; i < 3; i++ {
 		resp, err = http.Get(health)
 		if err == nil {
 			break
@@ -171,24 +171,24 @@ func NewPromAPI(f *framework.Framework, ns *corev1.Namespace) (promv1.API, error
 }
 
 // TODO
-func (p *Prom) QueryPercent(requests string, failures string) (model.SampleValue, error) {
+func (p *Prom) QueryPercent(requests string, failures string, testTime time.Time) (model.SampleValue, error) {
 	// if either is 0 return 0
 	requestsQuery, err := p.API.Query(context.Background(),
-		fmt.Sprintf("sum(%s)", requests), p.TestTime)
+		fmt.Sprintf("sum(%s)", requests), testTime)
 	if err != nil {
-		return 0, fmt.Errorf("query sum(%s) has value of 0 at time %v", requests, p.TestTime)
+		return 0, fmt.Errorf("query sum(%s) has value of 0 at time %v", requests, testTime)
 	}
 	if len(requestsQuery.(model.Vector)) != 1 {
-		return 0, fmt.Errorf("query sum(%s) has no data at time %v", requests, p.TestTime)
+		return 0, fmt.Errorf("query sum(%s) has no data at time %v", requests, testTime)
 	}
 
 	failuresQuery, err := p.API.Query(context.Background(),
-		fmt.Sprintf("sum(%s)", failures), p.TestTime)
+		fmt.Sprintf("sum(%s)", failures), testTime)
 	if err != nil {
 		return 0, err
 	}
 	if len(failuresQuery.(model.Vector)) != 1 {
-		return 0, fmt.Errorf("query sum(%s) has no data at time %v", failures, p.TestTime)
+		return 0, fmt.Errorf("query sum(%s) has no data at time %v", failures, testTime)
 	}
 	if failuresQuery.(model.Vector)[0].Value == 0 { //todo make sure the check works
 		return 0, nil
@@ -196,25 +196,25 @@ func (p *Prom) QueryPercent(requests string, failures string) (model.SampleValue
 
 	percent := fmt.Sprintf("sum(%s) / sum(%s)", failures, requests)
 	percentQuery, err := p.API.Query(context.Background(),
-		fmt.Sprintf("sum(%s) / sum(%s)", failures, requests), p.TestTime)
+		fmt.Sprintf("sum(%s) / sum(%s)", failures, requests), testTime)
 	if err != nil {
 		return 0, err
 	}
 	if len(percentQuery.(model.Vector)) != 1 {
-		return 0, fmt.Errorf("query sum(%s) has no data at time %v", percent, p.TestTime)
+		return 0, fmt.Errorf("query sum(%s) has no data at time %v", percent, testTime)
 	}
 	return percentQuery.(model.Vector)[0].Value, err
 }
 
 // TODO
-func (p *Prom) Query(name string) (model.SampleValue, error) {
+func (p *Prom) Query(name string, testTime time.Time) (model.SampleValue, error) {
 	// if either is 0 return 0
-	query, err := p.API.Query(context.Background(), name, p.TestTime)
+	query, err := p.API.Query(context.Background(), name, testTime)
 	if err != nil {
 		return 0, err
 	}
 	if len(query.(model.Vector)) != 1 {
-		return 0, fmt.Errorf("query (%s) has no data at time %v", p.TestTime)
+		return 0, fmt.Errorf("query (%s) has no data at time %v", testTime)
 	}
 	return query.(model.Vector)[0].Value, err
 }
