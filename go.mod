@@ -20,41 +20,29 @@ require (
 	github.com/docker/go-units v0.3.3 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
-	github.com/golang/groupcache v0.0.0-20190129154638-5b532d6fd5ef // indirect
-	github.com/golang/mock v1.1.1
+	github.com/golang/mock v1.2.0
 	github.com/golang/protobuf v1.3.1
 	github.com/google/btree v1.0.0 // indirect
-	github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf // indirect
-	github.com/googleapis/gnostic v0.2.0 // indirect
-	github.com/gregjones/httpcache v0.0.0-20190212212710-3befbb6ad0cc // indirect
-	github.com/hashicorp/golang-lru v0.0.0-20180201235237-0fb14efe8c47 // indirect
-	github.com/imdario/mergo v0.3.6 // indirect
-	github.com/json-iterator/go v1.1.5 // indirect
-	github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742 // indirect
+	github.com/kubernetes-sigs/aws-alb-ingress-controller v1.1.2
 	github.com/onsi/ginkgo v1.8.0
 	github.com/onsi/gomega v1.5.0
 	github.com/operator-framework/operator-sdk v0.0.7
-	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
-	github.com/pkg/errors v0.8.0
+	github.com/pkg/errors v0.8.1
 	github.com/prometheus/client_golang v0.9.3
 	github.com/prometheus/client_model v0.0.0-20190129233127-fd36f4220a90
 	github.com/prometheus/common v0.4.0
-	github.com/spf13/pflag v1.0.2
+	github.com/spf13/pflag v1.0.3
 	github.com/stevvooe/resumable v0.0.0-20180830230917-22b14a53ba50 // indirect
 	github.com/stretchr/testify v1.2.2
 	github.com/vishvananda/netlink v1.0.0
 	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc // indirect
-	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
+	golang.org/x/net v0.0.0-20190108225652-1e06a53dbb7e
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58 // indirect
-	golang.org/x/sys v0.0.0-20181116152217-5ac8a444bdc5
-	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2 // indirect
+	golang.org/x/sys v0.0.0-20190214214411-e77772198cdc
 	google.golang.org/genproto v0.0.0-20180817151627-c66870c02cf8 // indirect
 	google.golang.org/grpc v1.14.0
-	gopkg.in/airbrake/gobrake.v2 v2.0.9 // indirect
-	gopkg.in/gemnasium/logrus-airbrake-hook.v2 v2.1.2 // indirect
-	gopkg.in/inf.v0 v0.9.1 // indirect
-	k8s.io/api v0.0.0-20180712090710-2d6f90ab1293
-	k8s.io/apimachinery v0.0.0-20180621070125-103fd098999d
-	k8s.io/client-go v0.0.0-20180806134042-1f13a808da65
+	k8s.io/api v0.0.0-20181213150558-05914d821849
+	k8s.io/apimachinery v0.0.0-20181127025237-2b1284ed4c93
+	k8s.io/client-go v2.0.0-alpha.0.0.20181213151034-8d9ed539ba31+incompatible
 	k8s.io/kube-openapi v0.0.0-20190510232812-a01b7d5d6c22 // indirect
 )

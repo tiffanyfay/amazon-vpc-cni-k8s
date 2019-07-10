@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
 
@@ -10,6 +11,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // Add before and after for setup and delete of pods
@@ -53,14 +55,31 @@ func (r *Resources) ExpectCleanupSuccessful(ctx context.Context, f *framework.Fr
 	Expect(err).NotTo(HaveOccurred())
 }
 
+// TODO comment
+type PatchSpec struct {
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value int32 `json:"value"`
+}
+
 // TODO method comment
 func (r *Resources) ExpectDeploymentScaleSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace, replicas int32) {
-	By("scale deployment")
-	scale, err := f.ClientSet.AppsV1().Deployments(ns.Name).GetScale(r.Deployment.Name, &metav1.GetOptions{})
-	scale.Spec.Replicas = replicas
-	scale, err = f.ClientSet.AppsV1().Deployments(ns.Name).UpdateScale(r.Deployment.Name, &scale)
+	// By("scale deployment")
+	// scale, err := f.ClientSet.AppsV1().Deployments(ns.Name).GetScale(r.Deployment.Name, &metav1.GetOptions{})
+	// scale.Spec.Replicas = replicas
+	// scale, err = f.ClientSet.AppsV1().Deployments(ns.Name).UpdateScale(r.Deployment.Name, &scale)
+	By("patch deployment")
+	patch := make([]PatchSpec, 1)
+	patch[0].Op = "replace"
+	patch[0].Path = "/spec/replicas"
+	patch[0].Value = replicas
+
+	patchBytes, err := json.Marshal(patch)
+
+	dp, err := f.ClientSet.AppsV1().Deployments(ns.Name).Patch(r.Deployment.Name, types.JSONPatchType, patchBytes)
+	Expect(err).NotTo(HaveOccurred())
 
 	By("wait deployment")
-	dp, err = f.ResourceManager.WaitDeploymentReady(ctx, r.Deployment)
+	_, err = f.ResourceManager.WaitDeploymentReady(ctx, dp)	
 	Expect(err).NotTo(HaveOccurred())
 }

@@ -90,14 +90,14 @@ func (f *Framework) BeforeEach() {
 		fmt.Printf("Making client; %v\n", f.ClientSet)
 	}
 	// if f.Cloud == nil {
-	// 	// reg := prometheus.NewRegistry()
-	// 	// mc, _ := metric.NewCollector(reg, "alb")
+	// 	reg := prometheus.NewRegistry()
+	// 	mc, _ := metric.NewCollector(reg, "alb")
 	// 	var err error
-	// 	f.Cloud, err = cloud.New(aws.CloudConfig{
+	// 	f.Cloud, err = aws.New(aws.CloudConfig{
 	// 		Region: f.Options.AWSRegion,
 	// 		VpcID:  f.Options.AWSVPCID},
 	// 		f.Options.ClusterName, mc)
-	// 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	// 	Expect(err).NotTo(HaveOccurred())
 	// }
 	if f.AWSClient == nil {
 		// reg := prometheus.NewRegistry()
@@ -129,6 +129,7 @@ func (f *Framework) cleanupAction() func() {
 
 func (f *Framework) buildRestConfig() (*rest.Config, error) {
 	restCfg, err := clientcmd.BuildConfigFromFlags("", "")
+	// restCfg, err := clientcmd.BuildConfigFromFlags("", f.Options.KubeConfig)
 	if err != nil {
 		return nil, err
 	}
