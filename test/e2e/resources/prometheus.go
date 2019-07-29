@@ -28,7 +28,7 @@ type Prom struct {
 	API promv1.API
 }
 
-func NewPromResources(ns string, replicas int32) *Resources {
+func NewPromResources(ns string, nodeName string, replicas int32) *Resources {
 	mode := int32(420)
 
 	labels := map[string]string{
@@ -49,6 +49,23 @@ func NewPromResources(ns string, replicas int32) *Resources {
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "testpod", // TODO change this name
+					Affinity: &corev1.Affinity{
+						NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      "kubernetes.io/hostname",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{nodeName},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:  "prometheus",
@@ -99,14 +116,13 @@ func NewPromResources(ns string, replicas int32) *Resources {
 	}
 
 	svcs := []*corev1.Service{}
-	// svcType := corev1.ServiceTypeNodePort
+
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      PromServiceName,
 			Namespace: ns,
 		},
 		Spec: corev1.ServiceSpec{
-			// Type: svcType,
 			Selector: map[string]string{
 				"app": "prometheus-server",
 			},
@@ -155,7 +171,7 @@ func NewPromAPI(f *framework.Framework, ns *corev1.Namespace) (promv1.API, error
 		return nil, err
 	}
 	resp.Body.Close()
-	log.Infof("healthy %v %v", resp.StatusCode, resp.Status)
+	log.Infof("healthy %v %v", resp.StatusCode, resp.Status) // TODO delete this
 	// TODO maybe handle .Status
 	if resp.StatusCode != 200 {
 		return nil, errors.New("prometheus is not healthy")
@@ -173,7 +189,7 @@ func NewPromAPI(f *framework.Framework, ns *corev1.Namespace) (promv1.API, error
 // TODO
 func (p *Prom) QueryPercent(requests string, failures string, testTime time.Time) (model.SampleValue, error) {
 	// if either is 0 return 0
-	requestsQuery, err := p.API.Query(context.Background(),
+	requestsQuery, warnings, err := p.API.Query(context.Background(),
 		fmt.Sprintf("sum(%s)", requests), testTime)
 	if err != nil {
 		return 0, fmt.Errorf("query sum(%s) has value of 0 at time %v", requests, testTime)
@@ -182,10 +198,13 @@ func (p *Prom) QueryPercent(requests string, failures string, testTime time.Time
 		return 0, fmt.Errorf("query sum(%s) has no data at time %v", requests, testTime)
 	}
 
-	failuresQuery, err := p.API.Query(context.Background(),
+	failuresQuery, warnings, err := p.API.Query(context.Background(),
 		fmt.Sprintf("sum(%s)", failures), testTime)
 	if err != nil {
 		return 0, err
+	}
+	if len(warnings) > 0 {
+		log.Debug(warnings)
 	}
 	if len(failuresQuery.(model.Vector)) != 1 {
 		return 0, fmt.Errorf("query sum(%s) has no data at time %v", failures, testTime)
@@ -195,10 +214,13 @@ func (p *Prom) QueryPercent(requests string, failures string, testTime time.Time
 	}
 
 	percent := fmt.Sprintf("sum(%s) / sum(%s)", failures, requests)
-	percentQuery, err := p.API.Query(context.Background(),
+	percentQuery, warnings, err := p.API.Query(context.Background(),
 		fmt.Sprintf("sum(%s) / sum(%s)", failures, requests), testTime)
 	if err != nil {
 		return 0, err
+	}
+	if len(warnings) > 0 {
+		log.Debug(warnings)
 	}
 	if len(percentQuery.(model.Vector)) != 1 {
 		return 0, fmt.Errorf("query sum(%s) has no data at time %v", percent, testTime)
@@ -209,12 +231,15 @@ func (p *Prom) QueryPercent(requests string, failures string, testTime time.Time
 // TODO
 func (p *Prom) Query(name string, testTime time.Time) (model.SampleValue, error) {
 	// if either is 0 return 0
-	query, err := p.API.Query(context.Background(), name, testTime)
+	query, warnings, err := p.API.Query(context.Background(), name, testTime)
 	if err != nil {
 		return 0, err
 	}
+	if len(warnings) > 0 {
+		log.Debug(warnings)
+	}
 	if len(query.(model.Vector)) != 1 {
-		return 0, fmt.Errorf("query (%s) has no data at time %v", testTime)
+		return 0, fmt.Errorf("query (%s) has no data at time %v", name, testTime)
 	}
 	return query.(model.Vector)[0].Value, err
 }

@@ -11,6 +11,15 @@ spec:
   serviceAccountName: "testpod"
   terminationGracePeriodSeconds: 180
   restartPolicy: Never
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: cni-tester
+            operator: In
+            values:
+            - "true"
   containers:
   - name: cni-e2e
     image: 038954622175.dkr.ecr.us-west-2.amazonaws.com/amazon-k8s-cni-e2e:latest

@@ -2,9 +2,9 @@ package framework
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/amazon-vpc-cni-k8s/pkg/awsutils"
+	"github.com/aws/amazon-vpc-cni-k8s/pkg/cloud"
 
 	// "github.com/kubernetes-sigs/aws-alb-ingress-controller/internal/aws"
 
@@ -22,8 +22,8 @@ import (
 // This is an simplified version of k8s test framework, since some dependencies don't work under go module :(.
 // Framework supports common operations used by e2e tests; it will keep a client & a namespace for you.
 type Framework struct {
-	ClientSet clientset.Interface
-	// Cloud           cloud.Cloud
+	ClientSet       clientset.Interface
+	Cloud           cloud.Cloud
 	AWSClient       awsutils.APIs
 	ResourceManager *resource.Manager
 	Config          *rest.Config // TODO delete me
@@ -36,33 +36,33 @@ type Framework struct {
 	cleanupHandle CleanupActionHandle
 }
 
-func NewFastFramework() (*Framework, error) {
-	var err error
+// func NewFastFramework() (*Framework, error) {
+// 	var err error
 
-	f := &Framework{Options: globalOptions}
+// 	f := &Framework{Options: globalOptions}
 
-	f.Config, err = f.buildRestConfig()
-	if err != nil {
-		fmt.Println("Failed to make config")
-		return nil, err
-	}
+// 	f.Config, err = f.buildRestConfig()
+// 	if err != nil {
+// 		fmt.Println("Failed to make config")
+// 		return nil, err
+// 	}
 
-	f.ClientSet, err = clientset.NewForConfig(f.Config)
-	if err != nil {
-		fmt.Println("failed to make clientset")
-		return nil, err
-	}
+// 	f.ClientSet, err = clientset.NewForConfig(f.Config)
+// 	if err != nil {
+// 		fmt.Println("failed to make clientset")
+// 		return nil, err
+// 	}
 
-	f.AWSClient, err = awsutils.New()
-	if err != nil {
-		fmt.Println("failed to make aws client")
-		return nil, err
-	}
+// 	f.AWSClient, err = awsutils.New()
+// 	if err != nil {
+// 		fmt.Println("failed to make aws client")
+// 		return nil, err
+// 	}
 
-	f.ResourceManager = resource.NewManager(f.ClientSet)
+// 	f.ResourceManager = resource.NewManager(f.ClientSet)
 
-	return f, nil
-}
+// 	return f, nil
+// }
 
 // New makes a new framework and sets up a BeforeEach/AfterEach for you.
 func New() *Framework {
@@ -87,21 +87,18 @@ func (f *Framework) BeforeEach() {
 		f.Config = restCfg // TODO delete me
 		f.ClientSet, err = clientset.NewForConfig(restCfg)
 		Expect(err).NotTo(HaveOccurred())
-		fmt.Printf("Making client; %v\n", f.ClientSet)
 	}
-	// if f.Cloud == nil {
-	// 	reg := prometheus.NewRegistry()
-	// 	mc, _ := metric.NewCollector(reg, "alb")
-	// 	var err error
-	// 	f.Cloud, err = aws.New(aws.CloudConfig{
-	// 		Region: f.Options.AWSRegion,
-	// 		VpcID:  f.Options.AWSVPCID},
-	// 		f.Options.ClusterName, mc)
-	// 	Expect(err).NotTo(HaveOccurred())
-	// }
+	if f.Cloud == nil {
+		// 	reg := prometheus.NewRegistry()
+		// 	mc, _ := metric.NewCollector(reg, "alb")
+		var err error
+		f.Cloud, err = cloud.New(cloud.Config{
+			ClusterName:   f.Options.ClusterName,
+			APIMaxRetries: 2,
+		})
+		Expect(err).NotTo(HaveOccurred())
+	}
 	if f.AWSClient == nil {
-		// reg := prometheus.NewRegistry()
-		// mc, _ := metric.NewCollector(reg, "alb")
 		var err error
 		f.AWSClient, err = awsutils.New()
 		Expect(err).NotTo(HaveOccurred())
@@ -128,8 +125,8 @@ func (f *Framework) cleanupAction() func() {
 }
 
 func (f *Framework) buildRestConfig() (*rest.Config, error) {
-	restCfg, err := clientcmd.BuildConfigFromFlags("", "")
-	// restCfg, err := clientcmd.BuildConfigFromFlags("", f.Options.KubeConfig)
+	// restCfg, err := clientcmd.BuildConfigFromFlags("", "")
+	restCfg, err := clientcmd.BuildConfigFromFlags("", f.Options.KubeConfig)
 	if err != nil {
 		return nil, err
 	}

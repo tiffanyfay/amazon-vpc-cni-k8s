@@ -10,6 +10,8 @@ type Manager struct {
 	*NamespaceManager
 	*DeploymentManager
 	*ServiceManager
+	*DaemonSetManager
+	*NodeManager
 }
 
 func NewManager(cs kubernetes.Interface) *Manager {
@@ -17,6 +19,8 @@ func NewManager(cs kubernetes.Interface) *Manager {
 		NamespaceManager:  NewNamespaceManager(cs),
 		DeploymentManager: NewDeploymentManager(cs),
 		ServiceManager:    NewServiceManager(cs),
+		DaemonSetManager:  NewDaemonSetManager(cs),
+		NodeManager:       NewNodeManager(cs),
 	}
 }
 

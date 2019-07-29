@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
 
@@ -18,25 +19,30 @@ import (
 // TODO
 
 type Resources struct {
+	Daemonset  *appsv1.DaemonSet
 	Deployment *appsv1.Deployment
 	Services   []*corev1.Service
 }
 
+type ResourcesGroup struct {
+	ResourcesGroup []*Resources
+}
+
 // TODO method comment
-func (r *Resources) ExpectDeploymentSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
-	By("create deployment")
+func (r *Resources) ExpectDeploySuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
+	By(fmt.Sprintf("create deployment (%s)", r.Deployment.Name))
 	dp, err := f.ClientSet.AppsV1().Deployments(ns.Name).Create(r.Deployment)
 	Expect(err).NotTo(HaveOccurred())
 
-	By("wait deployment")
+	By(fmt.Sprintf("wait deployment (%s)", r.Deployment.Name))
 	dp, err = f.ResourceManager.WaitDeploymentReady(ctx, dp)
 	Expect(err).NotTo(HaveOccurred())
 
-	By("create service(s)")
 	for _, service := range r.Services {
+		By(fmt.Sprintf("create service (%s)", service.Name))
 		svc, err := f.ClientSet.CoreV1().Services(ns.Name).Create(service)
 		Expect(err).NotTo(HaveOccurred())
-		By("wait service")
+		By(fmt.Sprintf("wait service (%s)", service.Name))
 		_, err = f.ResourceManager.WaitServiceHasEndpointsNum(ctx, svc, int(*dp.Spec.Replicas))
 		Expect(err).NotTo(HaveOccurred())
 	}
@@ -44,22 +50,33 @@ func (r *Resources) ExpectDeploymentSuccessful(ctx context.Context, f *framework
 
 // TODO method comment
 func (r *Resources) ExpectCleanupSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
-	By("delete service(s)")
-	for _, svc := range r.Services {
-		err := f.ClientSet.CoreV1().Services(ns.Name).Delete(svc.Name, &metav1.DeleteOptions{})
+	for _, service := range r.Services {
+		By(fmt.Sprintf("delete service (%s)", service.Name))
+		err := f.ClientSet.CoreV1().Services(ns.Name).Delete(service.Name, &metav1.DeleteOptions{})
 		Expect(err).NotTo(HaveOccurred())
 	}
 
-	By("delete deployment")
+	By(fmt.Sprintf("delete deployment (%s)", r.Deployment.Name))
 	err := f.ClientSet.AppsV1().Deployments(ns.Name).Delete(r.Deployment.Name, &metav1.DeleteOptions{})
 	Expect(err).NotTo(HaveOccurred())
+
+	By(fmt.Sprintf("wait delete deployment (%s)", r.Deployment.Name))
+	err = f.ResourceManager.WaitDeploymentDeleted(ctx, r.Deployment)
+	Expect(err).NotTo(HaveOccurred())
+}
+
+// TODO method comment
+func (rg *ResourcesGroup) ExpectCleanupSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
+	for _, r := range rg.ResourcesGroup {
+		r.ExpectCleanupSuccessful(ctx, f, ns)
+	}
 }
 
 // TODO comment
 type PatchSpec struct {
 	Op    string `json:"op"`
 	Path  string `json:"path"`
-	Value int32 `json:"value"`
+	Value int32  `json:"value"`
 }
 
 // TODO method comment
@@ -68,18 +85,48 @@ func (r *Resources) ExpectDeploymentScaleSuccessful(ctx context.Context, f *fram
 	// scale, err := f.ClientSet.AppsV1().Deployments(ns.Name).GetScale(r.Deployment.Name, &metav1.GetOptions{})
 	// scale.Spec.Replicas = replicas
 	// scale, err = f.ClientSet.AppsV1().Deployments(ns.Name).UpdateScale(r.Deployment.Name, &scale)
-	By("patch deployment")
-	patch := make([]PatchSpec, 1)
-	patch[0].Op = "replace"
-	patch[0].Path = "/spec/replicas"
-	patch[0].Value = replicas
-
+	By(fmt.Sprintf("scale deployment (%s)", r.Deployment.Name))
+	patch := []PatchSpec{
+		{
+			Op:    "replace",
+			Path:  "/spec/replicas",
+			Value: replicas,
+		},
+	}
 	patchBytes, err := json.Marshal(patch)
 
 	dp, err := f.ClientSet.AppsV1().Deployments(ns.Name).Patch(r.Deployment.Name, types.JSONPatchType, patchBytes)
 	Expect(err).NotTo(HaveOccurred())
 
-	By("wait deployment")
-	_, err = f.ResourceManager.WaitDeploymentReady(ctx, dp)	
+	By(fmt.Sprintf("wait deployment (%s)", r.Deployment.Name))
+	_, err = f.ResourceManager.WaitDeploymentReady(ctx, dp)
 	Expect(err).NotTo(HaveOccurred())
+}
+
+// TODO method comment
+func (rg *ResourcesGroup) ExpectDeploymentScaleSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace, replicas int32) {
+	for _, r := range rg.ResourcesGroup {
+		r.ExpectDeploymentScaleSuccessful(ctx, f, ns, replicas)
+	}
+}
+
+func (r *Resources) ExpectDaemonsetUpdateSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace) {
+	By(fmt.Sprintf("update daemonset (%s)", r.Daemonset.Name))
+	ds, err := f.ClientSet.AppsV1().DaemonSets(ns.Name).Update(r.Daemonset)
+	Expect(err).NotTo(HaveOccurred())
+
+	By(fmt.Sprintf("wait daemonset (%s)", r.Daemonset.Name))
+	_, err = f.ResourceManager.WaitDaemonSetReady(ctx, ds)
+	Expect(err).NotTo(HaveOccurred())
+}
+
+func (r *Resources) ExpectServicesSuccessful(ctx context.Context, f *framework.Framework, ns *corev1.Namespace, replicas int) {
+	for _, service := range r.Services {
+		By(fmt.Sprintf("create service (%s)", service.Name))
+		svc, err := f.ClientSet.CoreV1().Services(ns.Name).Create(service)
+		Expect(err).NotTo(HaveOccurred())
+		By(fmt.Sprintf("wait service (%s)", service.Name))
+		_, err = f.ResourceManager.WaitServiceHasEndpointsNum(ctx, svc, replicas)
+		Expect(err).NotTo(HaveOccurred())
+	}
 }

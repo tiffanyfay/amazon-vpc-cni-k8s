@@ -9,7 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
-func NewTestpodResources(ns string, replicas int32) *Resources {
+func NewTestpodResources(ns string, nodeName string, replicas int32) *Resources {
 	app := "testpod"
 	maxUnavailable := intstr.FromInt(1)
 	maxSurge := intstr.FromInt(5)
@@ -38,6 +38,23 @@ func NewTestpodResources(ns string, replicas int32) *Resources {
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "testpod", // TODO change this name
+					Affinity: &corev1.Affinity{
+						NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      "kubernetes.io/hostname",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{nodeName},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:  app,
