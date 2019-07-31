@@ -9,7 +9,7 @@ import (
 
 type Cloud interface {
 	// ACM() ACM
-	Autoscaling() Autoscaling
+	AutoScaling() AutoScaling
 	// ELBV2() ELBV2
 	EC2() EC2
 	// RGT() RGT
@@ -21,7 +21,7 @@ type Cloud interface {
 type defaultCloud struct {
 	config Config
 
-	autoscaling Autoscaling
+	autoscaling AutoScaling
 	// acm   ACM
 	// elbv2 ELBV2
 	ec2 EC2
@@ -53,7 +53,7 @@ func New(cfg Config) (Cloud, error) {
 	session = session.Copy(&aws.Config{Region: aws.String(cfg.Region)})
 	return &defaultCloud{
 		config:      cfg,
-		autoscaling: NewAutoscaling(session),
+		autoscaling: NewAutoScaling(session),
 		// acm:    NewACM(session),
 		// elbv2:  NewELBV2(session),
 		ec2: NewEC2(session),
@@ -65,7 +65,7 @@ func New(cfg Config) (Cloud, error) {
 // 	return c.acm
 // }
 
-func (c *defaultCloud) Autoscaling() Autoscaling {
+func (c *defaultCloud) AutoScaling() AutoScaling {
 	return c.autoscaling
 }
 

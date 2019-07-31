@@ -3,7 +3,6 @@ package framework
 import (
 	"context"
 
-	"github.com/aws/amazon-vpc-cni-k8s/pkg/awsutils"
 	"github.com/aws/amazon-vpc-cni-k8s/pkg/cloud"
 
 	// "github.com/kubernetes-sigs/aws-alb-ingress-controller/internal/aws"
@@ -24,7 +23,6 @@ import (
 type Framework struct {
 	ClientSet       clientset.Interface
 	Cloud           cloud.Cloud
-	AWSClient       awsutils.APIs
 	ResourceManager *resource.Manager
 	Config          *rest.Config // TODO delete me
 
@@ -98,12 +96,6 @@ func (f *Framework) BeforeEach() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 	}
-	if f.AWSClient == nil {
-		var err error
-		f.AWSClient, err = awsutils.New()
-		Expect(err).NotTo(HaveOccurred())
-	}
-
 	f.ResourceManager = resource.NewManager(f.ClientSet)
 	f.cleanupHandle = AddCleanupAction(f.cleanupAction())
 }

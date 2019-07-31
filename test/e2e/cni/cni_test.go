@@ -2,22 +2,14 @@ package cni_test
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"time"
 
-	"github.com/aws/amazon-vpc-cni-k8s/ipamd/datastore"
+	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/cni"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework/utils"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/resources"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/autoscaling"
-	"github.com/aws/aws-sdk-go/service/ec2"
 	log "github.com/cihub/seelog"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -33,12 +25,12 @@ var (
 	ctx      context.Context
 	testTime time.Time
 
-	f                   *framework.Framework
-	prom                *resources.Prom
-	awsNodeSvc          *resources.Resources
-	promResources       *resources.Resources
-	testpodResources    *resources.Resources
-	nginxResourcesGroup *resources.ResourcesGroup
+	f                *framework.Framework
+	prom             *resources.Prom
+	awsNodeSvc       *resources.Resources
+	promResources    *resources.Resources
+	testpodResources *resources.Resources
+	resourcesGroup   []*resources.Resources
 
 	promAPI promv1.API
 	ns      *corev1.Namespace
@@ -102,335 +94,28 @@ func expectAWSNodePromMetricsPass() {
 
 }
 
-// TODO make it take in the ns and pod name
-// getTesterNodeName gets the node name in which the cni-e2e test runs on
-func getTesterNodeName() (string, error) {
-	testerPod, err := f.ClientSet.CoreV1().Pods("cni-test").Get("cni-e2e", metav1.GetOptions{})
-	return testerPod.Spec.NodeName, err
-}
-
-func getTestNodes() ([]corev1.Node, error) {
-	var testNodes []corev1.Node
-
-	testerNode, err := getTesterNodeName()
-	if err != nil {
-		return nil, err
-	}
-
-	time.Sleep(time.Second * 10)
-	nodesList, err := f.ClientSet.CoreV1().Nodes().List(metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	if len(nodesList.Items) == 0 {
-		return nil, errors.New("No nodes found")
-	}
-
-	for i, node := range nodesList.Items {
-		if testerNode == node.Name {
-			log.Debugf("tester node %d/%d (%s)", i+1, len(nodesList.Items), node.Name)
-			continue
-		}
-		log.Debugf("test node %d/%d  (%s)", i+1, len(nodesList.Items), node.Name)
-		testNodes = append(testNodes, node)
-	}
-	return testNodes, nil
-}
-
-// replaceASGInstances terminates instances for given nodes, waits for new instances to be
-// ready in their autoscaling groups, and waits for the new nodes to be ready
-func replaceASGInstances(nodes []corev1.Node) error {
-	var asgs []*string
-	var nodeNames []*string
-	var instanceIDsTerminate []*string
-	var instanceIDs []*string
-
-	for _, node := range nodes {
-		nodeName := node.Name
-		nodeNames = append(nodeNames, &nodeName)
-	}
-
-	// Get instance IDs
-	filterName := "private-dns-name"
-	describeInstancesInput := &ec2.DescribeInstancesInput{
-		Filters: []*ec2.Filter{
-			{
-				Name:   &filterName,
-				Values: nodeNames,
-			},
-		},
-	}
-	instancesToTerminate, err := f.Cloud.EC2().DescribeInstancesAsList(aws.BackgroundContext(), describeInstancesInput)
-	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			default:
-				log.Debug(aerr)
-			}
-		} else {
-			log.Debug(err)
-		}
-		return err
-	}
-	if len(instancesToTerminate) == 0 {
-		return errors.New("No instances found")
-	}
-	for i, instance := range instancesToTerminate {
-		log.Debugf("terminating instance %d/%d (name: %v, id: %v)", i+1, len(instancesToTerminate), *(instance.PrivateDnsName), *(instance.InstanceId))
-		instanceIDsTerminate = append(instanceIDsTerminate, instance.InstanceId)
-	}
-	// Terminate instances
-	for _, instanceID := range instanceIDsTerminate {
-		terminateInstanceInASGInput := &autoscaling.TerminateInstanceInAutoScalingGroupInput{
-			InstanceId:                     aws.String(*instanceID),
-			ShouldDecrementDesiredCapacity: aws.Bool(false),
-		}
-		result, err := f.Cloud.Autoscaling().TerminateInstanceInAutoScalingGroup(terminateInstanceInASGInput)
-		if err != nil {
-			if aerr, ok := err.(awserr.Error); ok {
-				switch aerr.Code() {
-				case autoscaling.ErrCodeScalingActivityInProgressFault:
-					log.Debug(autoscaling.ErrCodeScalingActivityInProgressFault, aerr.Error())
-				case autoscaling.ErrCodeResourceContentionFault:
-					log.Debug(autoscaling.ErrCodeResourceContentionFault, aerr.Error())
-				default:
-					log.Debug(aerr.Error())
-				}
-			} else {
-				// Print the error, cast err to awserr.Error to get the Code and
-				// Message from an error.
-				log.Debug(err.Error())
-			}
-			return err
-		}
-		asgs = append(asgs, result.Activity.AutoScalingGroupName)
-	}
-
-	By("wait until instances are terminated")
-	for _, instanceID := range instanceIDsTerminate {
-		log.Debugf("waiting until instance (%s) is terminated", *instanceID)
-		describeInstancesInput = &ec2.DescribeInstancesInput{
-			InstanceIds: []*string{instanceID},
-		}
-
-		// Wait for instances to be terminated
-		err = f.Cloud.EC2().WaitUntilInstanceTerminated(describeInstancesInput)
-		if err != nil {
-			if aerr, ok := err.(awserr.Error); ok {
-				switch aerr.Code() {
-				default:
-					log.Debug(aerr)
-				}
-			} else {
-				log.Debug(err)
-			}
-			return err
-		}
-	}
-
-	// Wait until instance is not in ASG
-
-	// Wait for ASGs to be ready
-	// Need to make sure that min == desired
-	describeASGsInput := &autoscaling.DescribeAutoScalingGroupsInput{
-		AutoScalingGroupNames: asgs,
-	}
-
-	// Get new instance IDs
-	instances, err := f.Cloud.Autoscaling().DescribeAutoScalingGroupInstancesAsList(ctx, describeASGsInput)
-	if err != nil {
-		return err
-	}
-
-	// var done bool
-	// for !done {
-	// 	instances, err = f.Cloud.Autoscaling().DescribeAutoScalingGroupInstancesAsList(ctx, describeASGsInput)
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	log.Debugf("ni: number of instances %d", len(instances))
-	// 	for _, instance := range instances {
-	// 		log.Debugf("ni: instance state (%s) status %s", *(instance.InstanceId), *(instance.LifecycleState))
-	// 		if *(instance.LifecycleState) == autoscaling.LifecycleStateTerminating {
-	// 			log.Debugf("ni: instance terminating (%s) status %s", *(instance.InstanceId), *(instance.LifecycleState))
-	// 			done = true
-	// 		}
-	// 	}
-
-	// }
-
-	By("wait ASG instances are ready")
-	asgout, err := f.Cloud.Autoscaling().DescribeAutoScalingGroups(describeASGsInput)
-	if err != nil {
-		return err
-	}
-	min := asgout.AutoScalingGroups[0].MinSize
-
-	var done2 bool
-	for !done2 {
-		instances, err = f.Cloud.Autoscaling().DescribeAutoScalingGroupInstancesAsList(ctx, describeASGsInput)
-		if err != nil {
-			return err
-		}
-		var count int64
-		log.Debugf("in: number of instances %d", len(instances))
-		for _, instance := range instances {
-			log.Debugf("in: instance state (%s) status %s", *(instance.InstanceId), *(instance.LifecycleState))
-			if *(instance.LifecycleState) == autoscaling.LifecycleStateInService {
-				count++
-			}
-			if count == *min {
-				done2 = true
-			}
-		}
-		time.Sleep(time.Second * 10)
-	}
-
-	// Get new instance IDs
-	instances, err = f.Cloud.Autoscaling().DescribeInServiceAutoScalingGroupInstancesAsList(ctx, describeASGsInput)
-	if err != nil {
-		return err
-	}
-
-	// Wait for nodes to be ready
-	By("wait nodes ready")
-	for i, instance := range instances {
-		log.Debugf("instance %d/%d (id: %s) is in service", i+1, len(instances), *(instance.InstanceId))
-		instanceIDs = append(instanceIDs, instance.InstanceId)
-	}
-	describeInstancesInput = &ec2.DescribeInstancesInput{
-		InstanceIds: instanceIDs,
-	}
-	instancesList, err := f.Cloud.EC2().DescribeInstancesAsList(aws.BackgroundContext(), describeInstancesInput)
-	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
-			switch aerr.Code() {
-			default:
-				log.Debug(aerr)
-			}
-		} else {
-			log.Debug(err)
-		}
-	}
-
-	for i, instance := range instancesList {
-		// Wait until node exists and is ready
-		nodeName := instance.PrivateDnsName
-		log.Debugf("wait until node %d/%d (%s) exists", i+1, len(instancesList), *nodeName)
-		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: *nodeName}}
-		node, err = f.ResourceManager.WaitNodeExists(ctx, node)
-		if err != nil {
-			return err
-		}
-		log.Infof("wait until node (%s) is ready", *nodeName)
-		_, err = f.ResourceManager.WaitNodeReady(ctx, node)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func expectUpdateAWSNodeSuccessful(warmIPTarget, warmENITarget, maxENI string) {
-	// Get aws-node daemonset
-	ks := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}}
-	ds, err := f.ClientSet.AppsV1().DaemonSets(ks.Name).Get("aws-node", metav1.GetOptions{})
-	Expect(err).ShouldNot(HaveOccurred())
-
-	// Update env vars
-	for i, envar := range ds.Spec.Template.Spec.Containers[0].Env {
-		if envar.Name == "WARM_IP_TARGET" {
-			ds.Spec.Template.Spec.Containers[0].Env[i].Value = warmIPTarget
-		} else if envar.Name == "WARM_ENI_TARGET" {
-			ds.Spec.Template.Spec.Containers[0].Env[i].Value = warmENITarget
-		} else if envar.Name == "MAX_ENI" {
-			ds.Spec.Template.Spec.Containers[0].Env[i].Value = maxENI
-		}
-	}
-	// Update aws-node daemonset
-	resource := &resources.Resources{
-		Daemonset: ds,
-	}
-	resource.ExpectDaemonsetUpdateSuccessful(ctx, f, ks)
-}
-
-// TODO
-func testENIInfo(nodes []corev1.Node, expectedENICount int, expectedIPCount int) {
-	for _, node := range nodes {
-		Expect(node.Status).NotTo(BeNil())
-		Expect(node.Status.Addresses).NotTo(BeNil())
-
-		// Get node port IP for metrics
-		var internalIP string
-		for _, address := range node.Status.Addresses {
-			if address.Type == corev1.NodeInternalIP {
-				internalIP = address.Address
-			}
-		}
-		port := "61679"
-
-		log.Debugf("Node (%s) has internal IP %s", node.Name, internalIP)
-		svc := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "aws-node",
-				Namespace: "kube-system",
-			},
-		}
-
-		_, err = f.ResourceManager.WaitServiceHasEndpointIP(ctx, svc, internalIP)
-		Expect(err).ShouldNot(HaveOccurred())
-
-		enisPath := fmt.Sprintf("http://%s:%s/v1/enis", internalIP, port)
-		resp, err := http.Get(enisPath)
-		Expect(err).ShouldNot(HaveOccurred())
-		defer resp.Body.Close()
-
-		body, err := ioutil.ReadAll(resp.Body)
-		Expect(err).ShouldNot(HaveOccurred())
-
-		var eniInfos datastore.ENIInfos
-		json.Unmarshal(body, &eniInfos)
-		log.Debugf("%+v", eniInfos)
-		log.Debugf("Expected ENI count %d", expectedENICount)
-
-		By("checking number of ENIs")
-		// Check number of ENIs
-		Expect(len(eniInfos.ENIIPPools)).To(Equal(expectedENICount))
-
-		By("checking number of IPs")
-		// Check number of IPs per ENI
-		for k, v := range eniInfos.ENIIPPools {
-			log.Debugf("checking number of IPs for %s", k)
-			Expect(len(v.IPv4Addresses)).To(Equal(expectedIPCount))
-		}
-	}
-}
-
 // TODO move to cni_suite_test.go
 // var _ = BeforeSuite(setup)
-func createNginxResources(nodes []corev1.Node) {
+func createNginxResources(nodes []corev1.Node) []*resources.Resources {
 	// Create NGINX resources
-	var nginxResources []*resources.Resources
 	// testpodResources.ExpectDeploymentScaleSuccessful(ctx, f, ns, 23)
 	// Create NGINX resources
+	var resourcesGroup []*resources.Resources
 	Expect(len(nodes)).To(BeNumerically(">", 0))
 	for i, node := range nodes {
-		log.Infof("creating nginx for node %d: %v", i+1, node.Name)
-		nginxResource := resources.NewNginxResources(ns.Name, node.Name, 0)
-		nginxResource.ExpectDeploySuccessful(ctx, f, ns)
-		nginxResources = append(nginxResources, nginxResource)
+		log.Infof("Creating deployment for node %d/%d: %v", i+1, len(nodes), node.Name)
+		resource := resources.NewNginxResources(ns.Name, node.Name, 0)
+		resource.ExpectDeploySuccessful(ctx, f, ns)
+		resourcesGroup = append(resourcesGroup, resource)
 	}
-
-	nginxResourcesGroup = &resources.ResourcesGroup{
-		ResourcesGroup: nginxResources,
-	}
+	return resourcesGroup
 }
 
-var _ = Describe("Testing 1 node", func() {
+var _ = Describe("Testing CNI", func() {
 	f = framework.New()
 
 	ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "cni-test"}}
-	ctx = context.Background()
+	ctx = context.Background() // TODO make this have a timeout
 
 	kubeSystem := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}}
 
@@ -443,49 +128,84 @@ var _ = Describe("Testing 1 node", func() {
 		// Expect(err).NotTo(HaveOccurred())
 		// time.Sleep(time.Second * 5)
 		// prom = &resources.Prom{API: promAPI}
+		// time.Sleep(time.Second * 5)
+
+		// 	ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "cni-test"}}
+		// 	ctx = context.Background()
+
+		// 	// TODO should we make sure they are on each node?
 
 	})
-
-	// time.Sleep(time.Second * 5)
-	// testTime := time.Now()
 
 	// Context("With CNI testpods and prometheus metrics", expectTestpodPromMetricsPass)
 
 	// Context("With IPAMD and prometheus metrics", func() {
 	// 	It("awsCNIAWSAPIErrorCount should be 0", func() {
-	// 		QueryPercent, err := prom.Query("awscni_aws_api_error_count", testTime)
+	// 		query, err := prom.Query("awscni_aws_api_error_count", testTime)
+	// 		Expect(err).NotTo(HaveOccurred())
+	// 		Expect(query).NotTo(BeNil())
+	// 		Expect(query).To(BeNumerically("<=", 5))
+	// 	})
+	// 	It("awscni_ipamd_error_count should be 0", func() {
+	// 		QueryPercent, err := prom.Query("awscni_ipamd_error_count", testTime)
 	// 		Expect(err).NotTo(HaveOccurred())
 	// 		Expect(QueryPercent).NotTo(BeNil())
 	// 		Expect(QueryPercent).To(BeNumerically("<=", 5))
 	// 	})
+	// 	// TODO query for each instance
+	// 	// It("awscni_eni_max should be 4", func() {
+	// 	// 	query, err := prom.Query("awscni_eni_max", testTime)
+	// 	// 	Expect(err).NotTo(HaveOccurred())
+	// 	// 	Expect(query).NotTo(BeNil())
+	// 	// 	Expect(query).To(Equal(4))
+	// 	// })
+	// 	// It("awscni_ip_max should be 15", func() {
+	// 	// 	query, err := prom.Query("awscni_ip_max", testTime)
+	// 	// 	Expect(err).NotTo(HaveOccurred())
+	// 	// 	Expect(query).NotTo(BeNil())
+	// 	// 	Expect(query).To(Equal(15))
+	// 	// })
+	// 	// It("awsCNIAWSAPIErrorCount should be 0", func() {
+	// 	// 	QueryPercent, err := prom.Query("awscni_aws_api_error_count", testTime)
+	// 	// 	Expect(err).NotTo(HaveOccurred())
+	// 	// 	Expect(QueryPercent).NotTo(BeNil())
+	// 	// 	Expect(QueryPercent).To(BeNumerically("<=", 5))
+	// 	// })
 	// })
 
 	It("Should pass with WARM_IP_TARGET=0 (default), WARM_ENI_TARGET=1 (default), and MAX_ENI=-1(default)", func() {
-		expectUpdateAWSNodeSuccessful("0", "1", "-1")
-		nodes, err := getTestNodes()
+		cni.ExpectUpdateAWSNodeSuccessful(ctx, f, "0", "1", "-1")
+
+		initialNodes, err := cni.GetTestNodes(f)
 		Expect(err).ShouldNot(HaveOccurred())
-		err = replaceASGInstances(nodes)
+
+		err = cni.ReplaceASGInstances(ctx, f, initialNodes)
 		Expect(err).ShouldNot(HaveOccurred())
+
 		awsNodeDS, err := f.ClientSet.AppsV1().DaemonSets(kubeSystem.Name).Get("aws-node", metav1.GetOptions{})
-		Expect(err).ShouldNot(HaveOccurred())
-		awsNodeS, err := f.ClientSet.CoreV1().Services(kubeSystem.Name).Get("aws-node", metav1.GetOptions{})
 		Expect(err).ShouldNot(HaveOccurred())
 		f.ResourceManager.WaitDaemonSetReady(ctx, awsNodeDS)
 
-		f.ResourceManager.WaitServiceHasEndpointsNum(ctx, awsNodeS, int(awsNodeDS.Status.NumberReady))
-		nodes, err = getTestNodes()
+		nodes, err := cni.GetTestNodes(f)
 		Expect(err).ShouldNot(HaveOccurred())
-		createNginxResources(nodes)
+		resourcesGroup = createNginxResources(nodes)
 
-		By("scaling testpod up to 25 pods")
-		nginxResourcesGroup.ExpectDeploymentScaleSuccessful(ctx, f, ns, 25)
-		time.Sleep(time.Second * 5)
-		testENIInfo(nodes, 3, 14)
+		// TODO handle checking if coreDNS is on the instance
+		for i, node := range nodes {
+			By(fmt.Sprintf("scaling up pods in deployment %s to get 3 ENIs", resourcesGroup[i].Deployment.Name))
+			_, ipLimit, err := cni.GetInstanceLimits(f, node.Name)
+			Expect(err).ToNot(HaveOccurred())
+			resourcesGroup[i].ExpectDeploymentScaleSuccessful(ctx, f, ns, int32(ipLimit*2))
 
-		By("scaling testpod up to 30 pods") // look into why it isn't changing at 26
-		nginxResourcesGroup.ExpectDeploymentScaleSuccessful(ctx, f, ns, 30)
-		time.Sleep(time.Second * 15) // TODO handle this because the ENI info is slower to load
-		testENIInfo(nodes, 4, 20)
+			time.Sleep(time.Second * 5)
+			cni.TestENIInfo(ctx, f, node, 3, ipLimit)
+
+			By(fmt.Sprintf("scaling up pods in deployment %s to get 4 ENIs", resourcesGroup[i].Deployment.Name))
+			resourcesGroup[i].ExpectDeploymentScaleSuccessful(ctx, f, ns, int32(ipLimit*2+1))
+
+			time.Sleep(time.Second * 15) // TODO handle this because the ENI info is slower to load
+			cni.TestENIInfo(ctx, f, node, 4, ipLimit)
+		}
 	})
 
 	// It("Should pass with WARM_IP_TARGET=0 (default), WARM_ENI_TARGET=0, and MAX_ENI=-1(default)", func() {
@@ -508,19 +228,20 @@ var _ = Describe("Testing 1 node", func() {
 	// 	By("scaling testpod up to 25 pods")
 	// 	nginxResourcesGroup.ExpectDeploymentScaleSuccessful(ctx, f, ns, 25)
 	// 	time.Sleep(time.Second * 6)
-	// 	testENIInfo(nodes, 2, 14)
+	// 	testENIInfo(nodes, 2, ipLimit-1)
 
 	// 	By("scaling testpod up to 26 pods")
 	// 	nginxResourcesGroup.ExpectDeploymentScaleSuccessful(ctx, f, ns, 26)
 	// 	time.Sleep(time.Second * 6) // TODO handle this because the ENI info is slower to load
-	// 	testENIInfo(nodes, 3, 14)
+	// 	testENIInfo(nodes, 3, ipLimit-1)
 	// })
 
 	AfterEach(func() {
-		// Replace nodes
-
 		// promResources.ExpectCleanupSuccessful(ctx, f, ns)
-		nginxResourcesGroup.ExpectCleanupSuccessful(ctx, f, ns)
+		for _, resources := range resourcesGroup {
+			// TODO log pods if they're not successful and maybe don't delete
+			resources.ExpectCleanupSuccessful(ctx, f, ns)
+		}
 		// awsNodeSvc.ExpectCleanupSuccessful(ctx, f, kubeSystem)
 	})
 })

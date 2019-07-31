@@ -2,11 +2,12 @@ package cloud
 
 import (
 	"context"
+	"strings"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
-	"strings"
 )
 
 // EC2 is an wrapper around original EC2API with additional convenient APIs.
@@ -79,7 +80,6 @@ func (c *defaultEC2) DescribeSecurityGroupsAsList(ctx context.Context, input *ec
 	}); err != nil {
 		return nil, err
 	}
-
 	return result, nil
 }
 
