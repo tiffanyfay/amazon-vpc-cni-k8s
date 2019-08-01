@@ -57,7 +57,7 @@ func TestENIInfo(ctx context.Context, f *framework.Framework, internalIP string,
 	// TODO: Future upgrade can get the port from aws-node's INTROSPECTION_BIND_ADDRESS
 
 	// Sleep needed because metrics endpoint takes time to update
-	time.Sleep(time.Second * 10)
+	time.Sleep(time.Second * 15)
 
 	port := "61679"
 

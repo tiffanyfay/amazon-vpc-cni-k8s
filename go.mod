@@ -12,7 +12,9 @@ require (
 	github.com/golang/groupcache v0.0.0-20190129154638-5b532d6fd5ef // indirect
 	github.com/golang/mock v1.1.1
 	github.com/golang/protobuf v1.3.1
+	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79 // indirect
 	github.com/hashicorp/golang-lru v0.0.0-20180201235237-0fb14efe8c47 // indirect
+	github.com/imdario/mergo v0.3.7 // indirect
 	github.com/onsi/ginkgo v1.8.0
 	github.com/onsi/gomega v1.5.0
 	github.com/operator-framework/operator-sdk v0.0.7
@@ -22,11 +24,12 @@ require (
 	github.com/prometheus/common v0.4.1
 	github.com/spf13/pflag v1.0.2
 	github.com/stretchr/testify v1.3.0
-	github.com/tiffanyfay/aws-k8s-test-framework v0.0.0-20190801190305-549b06ba171a
+	github.com/tiffanyfay/aws-k8s-test-framework v0.0.0-20190801194440-383c298128b5
 	github.com/vishvananda/netlink v1.0.0
 	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc // indirect
 	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
 	golang.org/x/sys v0.0.0-20181116152217-5ac8a444bdc5
+	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
 	google.golang.org/genproto v0.0.0-20180817151627-c66870c02cf8 // indirect
 	google.golang.org/grpc v1.14.0
 	k8s.io/api v0.0.0-20180712090710-2d6f90ab1293

@@ -33,8 +33,6 @@ var (
 
 	nodes   []corev1.Node
 	promAPI promv1.API
-
-	// nodes   []corev1.Node
 )
 
 var _ = Describe("Testing CNI", func() {
@@ -44,7 +42,7 @@ var _ = Describe("Testing CNI", func() {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "cni-test"}}
 	kubeSystem := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}}
 
-	// testPodErrPercentLimit := 0.1
+	testPodErrPercentLimit := 0.1
 	awsNodeErrLimit := 5
 
 	BeforeEach(func() {
@@ -74,7 +72,6 @@ var _ = Describe("Testing CNI", func() {
 	})
 
 	It("Should pass with WARM_IP_TARGET=0 (default), WARM_ENI_TARGET=1 (default), and MAX_ENI=-1(default)", func() {
-		By("Updating the aws-node WARM_IP_TARGET, WARM_ENI_TARGET, and MAX_ENI")
 		cni.UpdateAWSNodeEnvs(ctx, f, "0", "1", "-1")
 
 		awsNodeDS, err := f.ClientSet.AppsV1().DaemonSets(kubeSystem.Name).Get("aws-node", metav1.GetOptions{})
@@ -83,12 +80,9 @@ var _ = Describe("Testing CNI", func() {
 
 		testTime := time.Now()
 		// TODO get testpod metrics per instance
-		// testTestpodPromMetrics(testTime, testPodErrPercentLimit)
+		testTestpodPromMetrics(testTime, testPodErrPercentLimit)
 		// TODO: handle checking if coreDNS is on the instance
 		for i, node := range nodes {
-			// testpodResources = resources.NewTestpodResources(ns.Name, 6)
-			// testpodResources.ExpectDeploySuccessful(ctx, f, ns)
-
 			eniLimit, ipLimit, err := cni.GetInstanceLimits(f, node.Name)
 			Expect(err).ToNot(HaveOccurred())
 			internalIP, err := cni.GetNodeInternalIP(node)
@@ -97,46 +91,44 @@ var _ = Describe("Testing CNI", func() {
 
 			testAWSNodePromMetrics(testTime, promInstance, eniLimit, ipLimit, awsNodeErrLimit)
 
-			By(fmt.Sprintf("scaling deployment (%s) to get %d pods and 3 ENIs", resourcesGroup[i].Deployment.Name), int32(ipLimit*2))
+			By(fmt.Sprintf("scaling deployment (%s) to get %d pods and 3 ENIs", resourcesGroup[i].Deployment.Name, ipLimit*2))
 			resourcesGroup[i].ExpectDeploymentScaleSuccessful(ctx, f, ns, int32(ipLimit*2))
 			cni.TestENIInfo(ctx, f, internalIP, 3, ipLimit)
 
-			By(fmt.Sprintf("scaling deployment (%s) to get %d pods and 4 ENIs", resourcesGroup[i].Deployment.Name), int32(ipLimit*2+1))
+			By(fmt.Sprintf("scaling deployment (%s) to get %d pods and 4 ENIs", resourcesGroup[i].Deployment.Name, ipLimit*2+1))
 			resourcesGroup[i].ExpectDeploymentScaleSuccessful(ctx, f, ns, int32(ipLimit*2+1))
 			cni.TestENIInfo(ctx, f, internalIP, 4, ipLimit)
 		}
 	})
 
-	// It("Should pass with WARM_IP_TARGET=0 (default), WARM_ENI_TARGET=0, and MAX_ENI=-1(default)", func() {
-	// 	expectUpdateAWSNodeSuccessful("0", "0", "-1")
-	// 	nodes, err := getTestNodes()
-	// 	Expect(err).ShouldNot(HaveOccurred())
-	// 	err = replaceASGInstances(nodes)
-	// 	Expect(err).ShouldNot(HaveOccurred())
-	// 	awsNodeDS, err := f.ClientSet.AppsV1().DaemonSets(kubeSystem.Name).Get("aws-node", metav1.GetOptions{})
-	// 	Expect(err).ShouldNot(HaveOccurred())
-	// 	awsNodeS, err := f.ClientSet.CoreV1().Services(kubeSystem.Name).Get("aws-node", metav1.GetOptions{})
-	// 	Expect(err).ShouldNot(HaveOccurred())
-	// 	f.ResourceManager.WaitDaemonSetReady(ctx, awsNodeDS)
+	It("Should pass with WARM_IP_TARGET=0 (default), WARM_ENI_TARGET=2, and MAX_ENI=-1(default)", func() {
+		cni.UpdateAWSNodeEnvs(ctx, f, "0", "2", "-1")
 
-	// 	f.ResourceManager.WaitServiceHasEndpointsNum(ctx, awsNodeS, int(awsNodeDS.Status.NumberReady))
-	// 	nodes, err = getTestNodes()
-	// 	Expect(err).ShouldNot(HaveOccurred())
-	// 	createNginxResources(nodes)
+		awsNodeDS, err := f.ClientSet.AppsV1().DaemonSets(kubeSystem.Name).Get("aws-node", metav1.GetOptions{})
+		Expect(err).ShouldNot(HaveOccurred())
+		f.ResourceManager.WaitDaemonSetReady(ctx, awsNodeDS)
 
-	// 	By("scaling testpod up to 25 pods")
-	// 	nginxResourcesGroup.ExpectDeploymentScaleSuccessful(ctx, f, ns, 25)
-	// 	time.Sleep(time.Second * 6)
-	// 	testENIInfo(nodes, 2, ipLimit-1)
+		testTime := time.Now()
+		// TODO get testpod metrics per instance
+		testTestpodPromMetrics(testTime, testPodErrPercentLimit)
+		// TODO: handle checking if coreDNS is on the instance
+		for i, node := range nodes {
+			eniLimit, ipLimit, err := cni.GetInstanceLimits(f, node.Name)
+			Expect(err).ToNot(HaveOccurred())
+			internalIP, err := cni.GetNodeInternalIP(node)
+			Expect(err).ToNot(HaveOccurred())
+			promInstance := fmt.Sprintf("%s:61678", internalIP)
 
-	// 	By("scaling testpod up to 26 pods")
-	// 	nginxResourcesGroup.ExpectDeploymentScaleSuccessful(ctx, f, ns, 26)
-	// 	time.Sleep(time.Second * 6) // TODO handle this because the ENI info is slower to load
-	// 	testENIInfo(nodes, 3, ipLimit-1)
-	// })
+			testAWSNodePromMetrics(testTime, promInstance, eniLimit, ipLimit, awsNodeErrLimit)
+
+			By(fmt.Sprintf("scaling deployment (%s) to get %d pods and 3 ENIs", resourcesGroup[i].Deployment.Name, ipLimit*2))
+			resourcesGroup[i].ExpectDeploymentScaleSuccessful(ctx, f, ns, int32(ipLimit*2))
+			cni.TestENIInfo(ctx, f, internalIP, 4, ipLimit)
+		}
+	})
 
 	AfterEach(func() {
-		// promResources.ExpectCleanupSuccessful(ctx, f, ns)
+		promResources.ExpectCleanupSuccessful(ctx, f, ns)
 		// for _, resources := range resourcesGroup {
 		// 	// TODO log pods if they're not successful and maybe don't delete
 		// 	resources.ExpectCleanupSuccessful(ctx, f, ns)
@@ -212,7 +204,7 @@ func createTestResources(ctx context.Context, ns *corev1.Namespace, nodes []core
 
 	for i, node := range nodes {
 		log.Infof("Creating deployment for node %d/%d: %v", i+1, len(nodes), node.Name)
-		resource := resources.NewNginxResources(ns.Name, node.Name, 0)
+		resource := resources.NewTestpodResources(ns.Name, node.Name, 0)
 		resource.ExpectDeploySuccessful(ctx, f, ns)
 		resourcesGroup = append(resourcesGroup, resource)
 	}
