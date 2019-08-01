@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/aws/amazon-vpc-cni-k8s/ipamd/datastore"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
 
-	"github.com/aws/amazon-vpc-cni-k8s/ipamd/datastore"
 	"github.com/aws/amazon-vpc-cni-k8s/pkg/awsutils"
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/resources"
 
@@ -20,49 +20,16 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	log "github.com/cihub/seelog"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/prometheus/common/log"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// TODO make it take in the ns and pod name
-// getTesterNodeName gets the node name in which the cni-e2e test runs on
-func GetTesterNodeName(f *framework.Framework) (string, error) {
-	testerPod, err := f.ClientSet.CoreV1().Pods("cni-test").Get("cni-e2e", metav1.GetOptions{})
-	return testerPod.Spec.NodeName, err
-}
-
-func GetTestNodes(f *framework.Framework) ([]corev1.Node, error) {
-	var testNodes []corev1.Node
-
-	testerNode, err := GetTesterNodeName(f)
-	if err != nil {
-		return nil, err
-	}
-
-	time.Sleep(time.Second * 10)
-	nodesList, err := f.ClientSet.CoreV1().Nodes().List(metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	if len(nodesList.Items) == 0 {
-		return nil, errors.New("No nodes found")
-	}
-
-	for i, node := range nodesList.Items {
-		if testerNode == node.Name {
-			log.Debugf("tester node %d/%d (%s)", i+1, len(nodesList.Items), node.Name)
-			continue
-		}
-		log.Debugf("test node %d/%d  (%s)", i+1, len(nodesList.Items), node.Name)
-		testNodes = append(testNodes, node)
-	}
-	return testNodes, nil
-}
-
-func ExpectUpdateAWSNodeSuccessful(ctx context.Context, f *framework.Framework, warmIPTarget, warmENITarget, maxENI string) {
+// UpdateAWSNodeEnvs updates the aws-node daemonset's WARM_IP_TARGET, WARM_ENI_TARGET, and MAX_ENI and waits for
+// the daemonset to be updated
+func UpdateAWSNodeEnvs(ctx context.Context, f *framework.Framework, warmIPTarget, warmENITarget, maxENI string) {
 	// Get aws-node daemonset
 	ks := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}}
 	ds, err := f.ClientSet.AppsV1().DaemonSets(ks.Name).Get("aws-node", metav1.GetOptions{})
@@ -83,6 +50,77 @@ func ExpectUpdateAWSNodeSuccessful(ctx context.Context, f *framework.Framework, 
 		Daemonset: ds,
 	}
 	resource.ExpectDaemonsetUpdateSuccessful(ctx, f, ks)
+}
+
+// TestENIInfo checks if the ENIInfo values are as expected
+func TestENIInfo(ctx context.Context, f *framework.Framework, internalIP string, expectedENICount int, expectedIPCount int) {
+	// TODO: Future upgrade can get the port from aws-node's INTROSPECTION_BIND_ADDRESS
+
+	// Sleep needed because metrics endpoint takes time to update
+	time.Sleep(time.Second * 10)
+
+	port := "61679"
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "aws-node",
+			Namespace: "kube-system",
+		},
+	}
+
+	_, err := f.ResourceManager.WaitServiceHasEndpointIP(ctx, svc, internalIP)
+	Expect(err).ShouldNot(HaveOccurred())
+
+	enisPath := fmt.Sprintf("http://%s:%s/v1/enis", internalIP, port)
+	resp, err := http.Get(enisPath) // TODO add retry/wait logic
+	Expect(err).ShouldNot(HaveOccurred())
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	Expect(err).ShouldNot(HaveOccurred())
+
+	var eniInfos datastore.ENIInfos
+	json.Unmarshal(body, &eniInfos)
+	log.Debugf("%+v", eniInfos)
+	log.Debugf("Expected ENI count %d", expectedENICount)
+
+	// TODO check EC2 instance
+	By("checking number of ENIs")
+	Expect(len(eniInfos.ENIIPPools)).To(Equal(expectedENICount))
+
+	By("checking number of IPs")
+	for k, v := range eniInfos.ENIIPPools {
+		log.Debugf("Checking number of IPs for %s", k)
+		Expect(len(v.IPv4Addresses)).To(Equal(expectedIPCount))
+	}
+}
+
+// TODO make it take in the ns and pod name
+// GetTesterPodNodeName gets the node name in which the pod runs on
+func GetTesterPodNodeName(f *framework.Framework, nsName string, podName string) (string, error) {
+	testerPod, err := f.ClientSet.CoreV1().Pods(nsName).Get(podName, metav1.GetOptions{})
+	return testerPod.Spec.NodeName, err
+}
+
+// TODO GetTestNodes
+func GetTestNodes(f *framework.Framework, testerNodeName string) ([]corev1.Node, error) {
+	var testNodes []corev1.Node
+
+	nodesList, err := f.ClientSet.CoreV1().Nodes().List(metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if len(nodesList.Items) == 0 {
+		return nil, errors.New("No nodes found")
+	}
+
+	for i, node := range nodesList.Items {
+		if testerNodeName != node.Name {
+			log.Debugf("Found test node (%s)", node.Name)
+			testNodes = append(testNodes, node)
+		}
+	}
+	return testNodes, nil
 }
 
 // ReplaceASGInstances terminates instances for given nodes, waits for new instances to be
@@ -124,7 +162,7 @@ func ReplaceASGInstances(ctx context.Context, f *framework.Framework, nodes []co
 		return errors.New("No instances found")
 	}
 	for i, instance := range instancesToTerminate {
-		log.Debugf("terminating instance %d/%d (name: %v, id: %v)", i+1, len(instancesToTerminate), *(instance.PrivateDnsName), *(instance.InstanceId))
+		log.Debugf("Terminating instance %d/%d (name: %v, id: %v)", i+1, len(instancesToTerminate), *(instance.PrivateDnsName), *(instance.InstanceId))
 		instanceIDsTerminate = append(instanceIDsTerminate, instance.InstanceId)
 	}
 	// Terminate instances
@@ -192,8 +230,8 @@ func ReplaceASGInstances(ctx context.Context, f *framework.Framework, nodes []co
 		}
 	}
 
+	// Wait until nodes exists and are ready
 	for i, instance := range instancesList {
-		// Wait until node exists and is ready
 		nodeName := instance.PrivateDnsName
 		log.Debugf("Wait until node %d/%d (%s) exists", i+1, len(instancesList), *nodeName)
 		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: *nodeName}}
@@ -201,64 +239,13 @@ func ReplaceASGInstances(ctx context.Context, f *framework.Framework, nodes []co
 		if err != nil {
 			return err
 		}
-		log.Infof("Wait until node (%s) is ready", *nodeName)
+		log.Debugf("Wait until node %d/%d (%s) ready", i+1, len(instancesList), *nodeName)
 		_, err = f.ResourceManager.WaitNodeReady(ctx, node)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// TODO
-func TestENIInfo(ctx context.Context, f *framework.Framework, node corev1.Node, expectedENICount int, expectedIPCount int) {
-	Expect(node.Status).NotTo(BeNil())
-	Expect(node.Status.Addresses).NotTo(BeNil())
-
-	// Get node port IP for metrics
-	var internalIP string
-	for _, address := range node.Status.Addresses {
-		if address.Type == corev1.NodeInternalIP {
-			internalIP = address.Address
-		}
-	}
-	// Future upgrade can get the port from aws-node's INTROSPECTION_BIND_ADDRESS
-	port := "61679"
-
-	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "aws-node",
-			Namespace: "kube-system",
-		},
-	}
-
-	_, err := f.ResourceManager.WaitServiceHasEndpointIP(ctx, svc, internalIP)
-	Expect(err).ShouldNot(HaveOccurred())
-
-	enisPath := fmt.Sprintf("http://%s:%s/v1/enis", internalIP, port)
-	resp, err := http.Get(enisPath) // TODO add retry/wait logic
-	Expect(err).ShouldNot(HaveOccurred())
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	Expect(err).ShouldNot(HaveOccurred())
-
-	var eniInfos datastore.ENIInfos
-	json.Unmarshal(body, &eniInfos)
-	log.Debugf("%+v", eniInfos)
-	log.Debugf("Expected ENI count %d", expectedENICount)
-
-	By("checking number of ENIs")
-	// Check number of ENIs
-	Expect(len(eniInfos.ENIIPPools)).To(Equal(expectedENICount))
-
-	By("checking number of IPs")
-	// Check number of IPs per ENI
-	for k, v := range eniInfos.ENIIPPools {
-		log.Debugf("checking number of IPs for %s", k)
-		Expect(len(v.IPv4Addresses)).To(Equal(expectedIPCount))
-	}
-
 }
 
 // Get instance ENI and IP limits
@@ -286,4 +273,19 @@ func GetInstanceLimits(f *framework.Framework, nodeName string) (int, int, error
 
 	return awsutils.InstanceENIsAvailable[instanceType],
 		awsutils.InstanceIPsAvailable[instanceType] - 1, nil
+}
+
+// GetNodeInternalIP gets a node's internal IP address
+func GetNodeInternalIP(node corev1.Node) (string, error) {
+	if len(node.Status.Addresses) == 0 {
+		return "", fmt.Errorf("No addresses found for node (%s)", node.Name)
+	}
+
+	var internalIP string
+	for _, address := range node.Status.Addresses {
+		if address.Type == corev1.NodeInternalIP {
+			internalIP = address.Address
+		}
+	}
+	return internalIP, nil
 }

@@ -171,7 +171,6 @@ func NewPromAPI(f *framework.Framework, ns *corev1.Namespace) (promv1.API, error
 		return nil, err
 	}
 	resp.Body.Close()
-	log.Infof("healthy %v %v", resp.StatusCode, resp.Status) // TODO delete this
 	// TODO maybe handle .Status
 	if resp.StatusCode != 200 {
 		return nil, errors.New("prometheus is not healthy")
@@ -189,16 +188,23 @@ func NewPromAPI(f *framework.Framework, ns *corev1.Namespace) (promv1.API, error
 // TODO
 func (p *Prom) QueryPercent(requests string, failures string, testTime time.Time) (model.SampleValue, error) {
 	// if either is 0 return 0
-	requestsQuery, warnings, err := p.API.Query(context.Background(),
+	requestsOut, warnings, err := p.API.Query(context.Background(),
 		fmt.Sprintf("sum(%s)", requests), testTime)
 	if err != nil {
-		return 0, fmt.Errorf("query sum(%s) has value of 0 at time %v", requests, testTime)
+		return 0, err
 	}
-	if len(requestsQuery.(model.Vector)) != 1 {
-		return 0, fmt.Errorf("query sum(%s) has no data at time %v", requests, testTime)
+	if len(warnings) > 0 {
+		log.Debug(warnings)
+	}
+	if len(requestsOut.(model.Vector)) != 1 {
+		log.Debugf("prometheus query sum(%s) has no data at time %v", requests, testTime)
+		return 0, nil
+	}
+	if requestsOut.(model.Vector)[0].Value == 0 { //todo make sure the check works
+		return 0, nil
 	}
 
-	failuresQuery, warnings, err := p.API.Query(context.Background(),
+	failuresOut, warnings, err := p.API.Query(context.Background(),
 		fmt.Sprintf("sum(%s)", failures), testTime)
 	if err != nil {
 		return 0, err
@@ -206,15 +212,16 @@ func (p *Prom) QueryPercent(requests string, failures string, testTime time.Time
 	if len(warnings) > 0 {
 		log.Debug(warnings)
 	}
-	if len(failuresQuery.(model.Vector)) != 1 {
-		return 0, fmt.Errorf("query sum(%s) has no data at time %v", failures, testTime)
+	if len(failuresOut.(model.Vector)) != 1 {
+		log.Debugf("prometheus query sum(%s) has no data at time %v", failures, testTime)
+		return 0, nil
 	}
-	if failuresQuery.(model.Vector)[0].Value == 0 { //todo make sure the check works
+	if failuresOut.(model.Vector)[0].Value == 0 { //todo make sure the check works
 		return 0, nil
 	}
 
-	percent := fmt.Sprintf("sum(%s) / sum(%s)", failures, requests)
-	percentQuery, warnings, err := p.API.Query(context.Background(),
+	query := fmt.Sprintf("sum(%s) / sum(%s)", failures, requests)
+	out, warnings, err := p.API.Query(context.Background(),
 		fmt.Sprintf("sum(%s) / sum(%s)", failures, requests), testTime)
 	if err != nil {
 		return 0, err
@@ -222,24 +229,24 @@ func (p *Prom) QueryPercent(requests string, failures string, testTime time.Time
 	if len(warnings) > 0 {
 		log.Debug(warnings)
 	}
-	if len(percentQuery.(model.Vector)) != 1 {
-		return 0, fmt.Errorf("query sum(%s) has no data at time %v", percent, testTime)
+	if len(out.(model.Vector)) != 1 {
+		return 0, fmt.Errorf("query (%s) has no data at time %v", query, testTime)
 	}
-	return percentQuery.(model.Vector)[0].Value, err
+	return out.(model.Vector)[0].Value, err
 }
 
 // TODO
-func (p *Prom) Query(name string, testTime time.Time) (model.SampleValue, error) {
-	// if either is 0 return 0
-	query, warnings, err := p.API.Query(context.Background(), name, testTime)
+func (p *Prom) Query(query string, testTime time.Time) (model.SampleValue, error) {
+	out, warnings, err := p.API.Query(context.Background(), query, testTime)
 	if err != nil {
 		return 0, err
 	}
 	if len(warnings) > 0 {
 		log.Debug(warnings)
 	}
-	if len(query.(model.Vector)) != 1 {
-		return 0, fmt.Errorf("query (%s) has no data at time %v", name, testTime)
+	if len(out.(model.Vector)) != 1 {
+		log.Debugf("prometheus query (%s) has no data at time %v", query, testTime)
+		return 0, nil
 	}
-	return query.(model.Vector)[0].Value, err
+	return out.(model.Vector)[0].Value, err
 }

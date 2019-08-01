@@ -65,7 +65,6 @@ func (c *defaultAutoScaling) DescribeInServiceAutoScalingGroupInstancesAsList(ct
 			instances = append(instances, item.Instances...)
 		}
 		for _, instance := range instances {
-			log.Debugf("all lifecyle (%s) status (%s)", *(instance.InstanceId), *(instance.LifecycleState))
 			if *(instance.LifecycleState) == autoscaling.LifecycleStateInService {
 				result = append(result, instance)
 			}
@@ -78,7 +77,7 @@ func (c *defaultAutoScaling) DescribeInServiceAutoScalingGroupInstancesAsList(ct
 }
 
 // WaitUntilAutoScalingGroupInService waits until the ASG has the number of instances InService == DesiredCapacity
-// TODO probably make this only deal with one ASG at a time because it will loop through an ASG that is already all in service again
+// TODO: probably make this only deal with one ASG at a time because it will loop through an ASG that is already all in service again
 func (c *defaultAutoScaling) WaitUntilAutoScalingGroupInService(ctx context.Context, input *autoscaling.DescribeAutoScalingGroupsInput) error {
 	return wait.PollImmediateUntil(utils.PollIntervalMedium, func() (bool, error) {
 		asgOut, err := c.DescribeAutoScalingGroupsAsList(ctx, input)
@@ -88,7 +87,7 @@ func (c *defaultAutoScaling) WaitUntilAutoScalingGroupInService(ctx context.Cont
 		for i, asg := range asgOut {
 			var count int64
 			for _, instance := range asg.Instances {
-				log.Debugf("in: instance state (%s) status %s", *(instance.InstanceId), *(instance.LifecycleState))
+				log.Debugf("Instance (%s) state %s", *(instance.InstanceId), *(instance.LifecycleState))
 				if *(instance.LifecycleState) == autoscaling.LifecycleStateInService {
 					count++
 				}
