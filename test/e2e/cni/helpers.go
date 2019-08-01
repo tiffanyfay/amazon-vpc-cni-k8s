@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/aws/amazon-vpc-cni-k8s/ipamd/datastore"
-	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
+	"github.com/tiffanyfay/aws-k8s-test-framework/test/e2e/framework"
+	"github.com/tiffanyfay/aws-k8s-test-framework/test/e2e/resources"
 
 	"github.com/aws/amazon-vpc-cni-k8s/pkg/awsutils"
-	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/resources"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -114,7 +114,7 @@ func GetTestNodes(f *framework.Framework, testerNodeName string) ([]corev1.Node,
 		return nil, errors.New("No nodes found")
 	}
 
-	for i, node := range nodesList.Items {
+	for _, node := range nodesList.Items {
 		if testerNodeName != node.Name {
 			log.Debugf("Found test node (%s)", node.Name)
 			testNodes = append(testNodes, node)
@@ -209,7 +209,6 @@ func ReplaceASGInstances(ctx context.Context, f *framework.Framework, nodes []co
 		return err
 	}
 
-	// Wait for nodes to be ready
 	By("wait nodes ready")
 	for i, instance := range instances {
 		log.Debugf("Instance %d/%d (id: %s) is in service", i+1, len(instances), *(instance.InstanceId))

@@ -3,11 +3,11 @@ package cloud
 import (
 	"context"
 
-	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework/utils"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/autoscaling/autoscalingiface"
 	log "github.com/cihub/seelog"
+	"github.com/tiffanyfay/aws-k8s-test-framework/test/e2e/framework/utils"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 

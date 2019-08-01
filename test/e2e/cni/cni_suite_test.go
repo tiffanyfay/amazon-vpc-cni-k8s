@@ -3,10 +3,10 @@ package cni_test
 import (
 	"testing"
 
-	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
-	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework/utils"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/tiffanyfay/aws-k8s-test-framework/test/e2e/framework"
+	"github.com/tiffanyfay/aws-k8s-test-framework/test/e2e/framework/utils"
 )
 
 var _ = SynchronizedAfterSuite(func() {

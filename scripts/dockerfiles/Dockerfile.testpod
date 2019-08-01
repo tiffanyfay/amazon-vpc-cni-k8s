@@ -17,7 +17,7 @@ RUN go mod download
 
 # Create testpod
 RUN mkdir /app
-ADD test/e2e/resources/testpod/testpod.go /app
+ADD test/e2e/testpod/testpod.go /app
 RUN CGO_ENABLED=0 go build -o /app/testpod /app/testpod.go
 
 FROM alpine

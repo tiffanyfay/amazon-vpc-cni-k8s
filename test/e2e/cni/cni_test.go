@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/cni"
-	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/framework"
-	"github.com/aws/amazon-vpc-cni-k8s/test/e2e/resources"
+	"github.com/tiffanyfay/aws-k8s-test-framework/test/e2e/framework"
+	"github.com/tiffanyfay/aws-k8s-test-framework/test/e2e/resources"
 
 	log "github.com/cihub/seelog"
 	. "github.com/onsi/ginkgo"
@@ -97,11 +97,11 @@ var _ = Describe("Testing CNI", func() {
 
 			testAWSNodePromMetrics(testTime, promInstance, eniLimit, ipLimit, awsNodeErrLimit)
 
-			By(fmt.Sprintf("scaling up pods in deployment (%s) to get 3 ENIs", resourcesGroup[i].Deployment.Name))
+			By(fmt.Sprintf("scaling deployment (%s) to get %d pods and 3 ENIs", resourcesGroup[i].Deployment.Name), int32(ipLimit*2))
 			resourcesGroup[i].ExpectDeploymentScaleSuccessful(ctx, f, ns, int32(ipLimit*2))
 			cni.TestENIInfo(ctx, f, internalIP, 3, ipLimit)
 
-			By(fmt.Sprintf("scaling up pods in deployment (%s) to get 4 ENIs", resourcesGroup[i].Deployment.Name))
+			By(fmt.Sprintf("scaling deployment (%s) to get %d pods and 4 ENIs", resourcesGroup[i].Deployment.Name), int32(ipLimit*2+1))
 			resourcesGroup[i].ExpectDeploymentScaleSuccessful(ctx, f, ns, int32(ipLimit*2+1))
 			cni.TestENIInfo(ctx, f, internalIP, 4, ipLimit)
 		}
@@ -137,10 +137,10 @@ var _ = Describe("Testing CNI", func() {
 
 	AfterEach(func() {
 		// promResources.ExpectCleanupSuccessful(ctx, f, ns)
-		for _, resources := range resourcesGroup {
-			// TODO log pods if they're not successful and maybe don't delete
-			resources.ExpectCleanupSuccessful(ctx, f, ns)
-		}
+		// for _, resources := range resourcesGroup {
+		// 	// TODO log pods if they're not successful and maybe don't delete
+		// 	resources.ExpectCleanupSuccessful(ctx, f, ns)
+		// }
 	})
 })
 
