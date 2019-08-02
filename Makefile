@@ -12,6 +12,7 @@
 # language governing permissions and limitations under the License.
 #
 
+#todo add e2e
 .PHONY: all build-linux clean format check-format docker docker-build lint unit-test vet download-portmap build-docker-test build-metrics docker-metrics metrics-unit-test docker-metrics-test docker-vet
 
 IMAGE   ?= amazon/amazon-k8s-cni
@@ -47,9 +48,12 @@ download-portmap:
 
 # Build CNI Docker image
 docker:
-	@docker build --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.release -t "$(IMAGE):$(VERSION)" .
+	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.release -t "$(IMAGE):$(VERSION)" .
 	@echo "Built Docker image \"$(IMAGE):$(VERSION)\""
 
+build-docker-test:
+	@docker build -f scripts/dockerfiles/Dockerfile.test -t amazon-k8s-cni-test:latest .
+	
 # unit-test
 unit-test:
 	GOOS=linux CGO_ENABLED=1 go test -v -cover $(ALLPKGS)
@@ -63,13 +67,19 @@ unit-test-race:
 	GOOS=linux CGO_ENABLED=1 go test -v -cover -race -timeout 10s ./pkg/utils/...
 	GOOS=linux CGO_ENABLED=1 go test -v -cover -race -timeout 10s ./pkg/eniconfig/...
 	GOOS=linux CGO_ENABLED=1 go test -v -cover -race -timeout 10s ./ipamd/...
-
-build-docker-test:
-	@docker build -f scripts/dockerfiles/Dockerfile.test -t amazon-k8s-cni-test:latest .
-
+	
 docker-unit-test: build-docker-test
 	docker run -e GO111MODULE=on \
 		amazon-k8s-cni-test:latest make unit-test
+
+build-docker-e2e:
+	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.e2e -t "amazon-k8s-cni-test-e2e:$(VERSION)" .
+	@echo "Built Docker image \"amazon-k8s-cni-test-e2e:$(VERSION)\""
+
+# maybe rename to e2e-test-helper ?
+build-docker-testpod:
+	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.testpod -t "amazon-k8s-cni-testpod:$(VERSION)" .
+	@echo "Built Docker image \"amazon-k8s-cni-testpod:$(VERSION)\""
 
 # Build metrics
 build-metrics:
