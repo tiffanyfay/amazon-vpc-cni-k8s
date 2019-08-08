@@ -29,6 +29,7 @@ require (
 	github.com/prometheus/common v0.4.1
 	github.com/spf13/pflag v1.0.2
 	github.com/stretchr/testify v1.3.0
+	github.com/tiffanyfay/aws-k8s-test-framework v0.0.0-20190808001531-f078c2c05cc6
 	github.com/vishvananda/netlink v1.0.0
 	github.com/vishvananda/netns v0.0.0-20180720170159-13995c7128cc // indirect
 	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
