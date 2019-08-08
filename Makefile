@@ -53,7 +53,7 @@ docker:
 
 build-docker-test:
 	@docker build -f scripts/dockerfiles/Dockerfile.test -t amazon-k8s-cni-test:latest .
-	
+
 # unit-test
 unit-test:
 	GOOS=linux CGO_ENABLED=1 go test -v -cover $(ALLPKGS)
@@ -67,7 +67,7 @@ unit-test-race:
 	GOOS=linux CGO_ENABLED=1 go test -v -cover -race -timeout 10s ./pkg/utils/...
 	GOOS=linux CGO_ENABLED=1 go test -v -cover -race -timeout 10s ./pkg/eniconfig/...
 	GOOS=linux CGO_ENABLED=1 go test -v -cover -race -timeout 10s ./ipamd/...
-	
+
 docker-unit-test: build-docker-test
 	docker run -e GO111MODULE=on \
 		amazon-k8s-cni-test:latest make unit-test
