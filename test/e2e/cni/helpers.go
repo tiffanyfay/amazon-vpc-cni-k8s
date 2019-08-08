@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"time"
 
@@ -27,9 +28,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// TODO make an env replace function that is more generic
 // UpdateAWSNodeEnvs updates the aws-node daemonset's WARM_IP_TARGET, WARM_ENI_TARGET, and MAX_ENI and waits for
 // the daemonset to be updated
+// TODO make an env replace function that is more generic
 func UpdateAWSNodeEnvs(ctx context.Context, f *framework.Framework, warmIPTarget, warmENITarget, maxENI string) {
 	// Get aws-node daemonset
 	ks := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}}
@@ -53,7 +54,7 @@ func UpdateAWSNodeEnvs(ctx context.Context, f *framework.Framework, warmIPTarget
 	resource.ExpectDaemonsetUpdateSuccessful(ctx, f, ks)
 }
 
-// TestENIInfo checks if the ENIInfo values are as expected
+// TestENIInfo checks if the ENIInfo values from the metrics endpoint are as expected
 func TestENIInfo(ctx context.Context, f *framework.Framework, internalIP string, expectedENICount int, expectedIPCount int) {
 	// TODO: Future upgrade can get the port from aws-node's INTROSPECTION_BIND_ADDRESS
 
@@ -103,6 +104,7 @@ func GetTesterPodNodeName(f *framework.Framework, nsName string, podName string)
 }
 
 // GetTestNodes gets the nodes that are not running the tests
+// TODO handle node status
 func GetTestNodes(f *framework.Framework, testerNodeName string) ([]corev1.Node, error) {
 	var testNodes []corev1.Node
 
@@ -123,9 +125,205 @@ func GetTestNodes(f *framework.Framework, testerNodeName string) ([]corev1.Node,
 	return testNodes, nil
 }
 
-// ReplaceASGInstances terminates instances for given nodes, waits for new instances to be
+// NodeCoreDNSCount returns the number of KubeDNS or CoreDNS pods running on the node
+func NodeCoreDNSCount(f *framework.Framework, nodeName string) (int, error) {
+	var err error
+	var count int
+	var podList *corev1.PodList
+	// Find nodes running coredns
+	listOptions := metav1.ListOptions{
+		LabelSelector: "k8s-app=kube-dns",
+	}
+	podList, err = f.ClientSet.CoreV1().Pods("kube-system").List(listOptions)
+	if err != nil {
+		return 0, err
+	}
+	for _, pod := range podList.Items {
+		if nodeName == pod.Spec.NodeName {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// GetInstanceLimits gets instance ENI and IP limits
+func GetInstanceLimits(f *framework.Framework, nodeName string) (int, int, error) {
+	filterName := "private-dns-name"
+	describeInstancesInput := &ec2.DescribeInstancesInput{
+		Filters: []*ec2.Filter{
+			{
+				Name:   &filterName,
+				Values: []*string{&nodeName},
+			},
+		},
+	}
+	instance, err := f.Cloud.EC2().DescribeInstances(describeInstancesInput)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(instance.Reservations) < 1 {
+		return 0, 0, errors.New("No instance reservations found")
+	}
+	if len(instance.Reservations[0].Instances) < 1 {
+		return 0, 0, errors.New("No instances found")
+	}
+	instanceType := *(instance.Reservations[0].Instances[0].InstanceType)
+
+	return awsutils.InstanceENIsAvailable[instanceType],
+		awsutils.InstanceIPsAvailable[instanceType] - 1, nil
+}
+
+// GetNodeInternalIP gets a node's internal IP address
+func GetNodeInternalIP(node corev1.Node) (string, error) {
+	if len(node.Status.Addresses) == 0 {
+		return "", fmt.Errorf("No addresses found for node (%s)", node.Name)
+	}
+
+	var internalIP string
+	for _, address := range node.Status.Addresses {
+		if address.Type == corev1.NodeInternalIP {
+			internalIP = address.Address
+		}
+	}
+	return internalIP, nil
+}
+
+// WaitForASGDesiredCapacity ensures the autoscaling groups have the requested desired capacity and the nodes become ready
+func WaitForASGDesiredCapacity(ctx context.Context, f *framework.Framework, nodes []corev1.Node, desiredCapacity int) error {
+	var asgNames []*string
+	var asgs []*autoscaling.Group
+	var nodeNames []*string
+	var instanceIDs []*string
+	var asgInstanceIDs []*string
+
+	if len(nodes) >= desiredCapacity {
+		return nil
+	}
+
+	for _, node := range nodes {
+		nodeName := node.Name
+		nodeNames = append(nodeNames, &nodeName)
+	}
+
+	// Get instance IDs
+	filterName := "private-dns-name"
+	describeInstancesInput := &ec2.DescribeInstancesInput{
+		Filters: []*ec2.Filter{
+			{
+				Name:   &filterName,
+				Values: nodeNames,
+			},
+		},
+	}
+	instances, err := f.Cloud.EC2().DescribeInstancesAsList(aws.BackgroundContext(), describeInstancesInput)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			default:
+				log.Debug(aerr)
+			}
+		} else {
+			log.Debug(err)
+		}
+		return err
+	}
+	if len(instances) == 0 {
+		return errors.New("No instances found")
+	}
+
+	// Get ASGs
+	for _, instance := range instances {
+		instanceIDs = append(instanceIDs, instance.InstanceId)
+	}
+	describeAutoScalingInstancesInput := &autoscaling.DescribeAutoScalingInstancesInput{
+		InstanceIds: instanceIDs,
+	}
+	asgInstanceDetails, err := f.Cloud.AutoScaling().DescribeAutoScalingInstancesAsList(aws.BackgroundContext(), describeAutoScalingInstancesInput)
+	if err != nil {
+		return err
+	}
+	for _, asgInstance := range asgInstanceDetails {
+		asgNames = append(asgNames, asgInstance.AutoScalingGroupName)
+	}
+	describeASGsInput := &autoscaling.DescribeAutoScalingGroupsInput{
+		AutoScalingGroupNames: asgNames,
+	}
+	asgs, err = f.Cloud.AutoScaling().DescribeAutoScalingGroupsAsList(aws.BackgroundContext(), describeASGsInput)
+	if err != nil {
+		return err
+	}
+
+	log.Debug("verifying desired capacity of ASGs")
+	cap := int64(math.Ceil(float64(desiredCapacity) / float64(len(asgs))))
+	for _, asg := range asgs {
+		if *(asg.DesiredCapacity) < cap {
+			max := *(asg.MaxSize)
+			if max < cap {
+				max = cap
+			}
+			log.Debugf("increasing ASG desired capacity to %d", cap)
+			updateAutoScalingGroupInput := &autoscaling.UpdateAutoScalingGroupInput{
+				AutoScalingGroupName: asg.AutoScalingGroupName,
+				DesiredCapacity:      &cap,
+				MaxSize:              &max,
+			}
+			_, err := f.Cloud.AutoScaling().UpdateAutoScalingGroup(updateAutoScalingGroupInput)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	log.Debug("wait until ASG instances are ready")
+	err = f.Cloud.AutoScaling().WaitUntilAutoScalingGroupInService(aws.BackgroundContext(), describeASGsInput)
+
+	// Get instance IDs
+	asgInstances, err := f.Cloud.AutoScaling().DescribeInServiceAutoScalingGroupInstancesAsList(aws.BackgroundContext(), describeASGsInput)
+	if err != nil {
+		return err
+	}
+
+	By("wait nodes ready")
+	for i, asgInstance := range asgInstances {
+		log.Debugf("Instance %d/%d (id: %s) is in service", i+1, len(asgInstances), *(asgInstance.InstanceId))
+		asgInstanceIDs = append(asgInstanceIDs, asgInstance.InstanceId)
+	}
+	describeInstancesInput = &ec2.DescribeInstancesInput{
+		InstanceIds: asgInstanceIDs,
+	}
+	instancesList, err := f.Cloud.EC2().DescribeInstancesAsList(aws.BackgroundContext(), describeInstancesInput)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			default:
+				log.Debug(aerr)
+			}
+		} else {
+			log.Debug(err)
+		}
+	}
+
+	// Wait until nodes exists and are ready
+	for i, instance := range instancesList {
+		nodeName := instance.PrivateDnsName
+		log.Debugf("Wait until node %d/%d (%s) exists", i+1, len(instancesList), *nodeName)
+		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: *nodeName}}
+		node, err = f.ResourceManager.WaitNodeExists(ctx, node)
+		if err != nil {
+			return err
+		}
+		log.Debugf("Wait until node %d/%d (%s) ready", i+1, len(instancesList), *nodeName)
+		_, err = f.ResourceManager.WaitNodeReady(ctx, node)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ReplaceNodeASGInstances terminates instances for given nodes, waits for new instances to be
 // ready in their autoscaling groups, and waits for the new nodes to be ready
-func ReplaceASGInstances(ctx context.Context, f *framework.Framework, nodes []corev1.Node) error {
+func ReplaceNodeASGInstances(ctx context.Context, f *framework.Framework, nodes []corev1.Node) error {
 	var asgs []*string
 	var nodeNames []*string
 	var instanceIDsTerminate []*string
@@ -195,7 +393,6 @@ func ReplaceASGInstances(ctx context.Context, f *framework.Framework, nodes []co
 	time.Sleep(time.Second * 2)
 
 	// Wait for ASGs to be in service
-	// Need to make sure that min == desired
 	describeASGsInput := &autoscaling.DescribeAutoScalingGroupsInput{
 		AutoScalingGroupNames: asgs,
 	}
@@ -245,46 +442,4 @@ func ReplaceASGInstances(ctx context.Context, f *framework.Framework, nodes []co
 		}
 	}
 	return nil
-}
-
-// GetInstanceLimits gets instance ENI and IP limits
-func GetInstanceLimits(f *framework.Framework, nodeName string) (int, int, error) {
-	filterName := "private-dns-name"
-	describeInstancesInput := &ec2.DescribeInstancesInput{
-		Filters: []*ec2.Filter{
-			{
-				Name:   &filterName,
-				Values: []*string{&nodeName},
-			},
-		},
-	}
-	instance, err := f.Cloud.EC2().DescribeInstances(describeInstancesInput)
-	if err != nil {
-		return 0, 0, err
-	}
-	if len(instance.Reservations) < 1 {
-		return 0, 0, errors.New("No instance reservations found")
-	}
-	if len(instance.Reservations[0].Instances) < 1 {
-		return 0, 0, errors.New("No instances found")
-	}
-	instanceType := *(instance.Reservations[0].Instances[0].InstanceType)
-
-	return awsutils.InstanceENIsAvailable[instanceType],
-		awsutils.InstanceIPsAvailable[instanceType] - 1, nil
-}
-
-// GetNodeInternalIP gets a node's internal IP address
-func GetNodeInternalIP(node corev1.Node) (string, error) {
-	if len(node.Status.Addresses) == 0 {
-		return "", fmt.Errorf("No addresses found for node (%s)", node.Name)
-	}
-
-	var internalIP string
-	for _, address := range node.Status.Addresses {
-		if address.Type == corev1.NodeInternalIP {
-			internalIP = address.Address
-		}
-	}
-	return internalIP, nil
 }
