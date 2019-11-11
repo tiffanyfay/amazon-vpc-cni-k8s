@@ -15,6 +15,9 @@ package ipamd
 
 import (
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/pkg/errors"
 
@@ -22,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
@@ -38,11 +42,6 @@ const (
 // server controls RPC service responses.
 type server struct {
 	ipamContext *IPAMContext
-}
-
-// Check is for health checking.
-func (s *server) Check(ctx context.Context, req *healthpb.HealthCheckRequest) (*healthpb.HealthCheckResponse, error) {
-	return &healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVING}, nil
 }
 
 // AddNetwork processes CNI add network request and return an IP address for container
@@ -101,7 +100,7 @@ func (s *server) DelNetwork(ctx context.Context, in *pb.DelNetworkRequest) (*pb.
 	}
 	log.Infof("Send DelNetworkReply: IPv4Addr %s, DeviceNumber: %d, err: %v", ip, deviceNumber, err)
 
-	return &pb.DelNetworkReply{Success: err == nil, IPv4Addr: ip, DeviceNumber: int32(deviceNumber)}, nil
+	return &pb.DelNetworkReply{Success: err == nil, IPv4Addr: ip, DeviceNumber: int32(deviceNumber)}, err
 }
 
 // RunRPCHandler handles request from gRPC
@@ -115,12 +114,33 @@ func (c *IPAMContext) RunRPCHandler() error {
 	}
 	s := grpc.NewServer()
 	pb.RegisterCNIBackendServer(s, &server{ipamContext: c})
-	healthpb.RegisterHealthServer(s, &server{})
+	hs := health.NewServer()
+	// TODO: Implement watch once the status is check is handled correctly.
+	hs.SetServingStatus("grpc.health.v1.aws-node", healthpb.HealthCheckResponse_SERVING)
+	healthpb.RegisterHealthServer(s, hs)
 	// Register reflection service on gRPC server.
 	reflection.Register(s)
+	// Add shutdown hook
+	go c.shutdownListener(s)
 	if err := s.Serve(lis); err != nil {
 		log.Errorf("Failed to start server on gRPC port: %v", err)
 		return errors.Wrap(err, "ipamd: failed to start server on gPRC port")
 	}
 	return nil
+}
+
+// shutdownListener - Listen to signals and set ipamd to be in status "terminating"
+func (c *IPAMContext) shutdownListener(s *grpc.Server) {
+	log.Info("Setting up shutdown hook.")
+	sig := make(chan os.Signal, 1)
+
+	// Interrupt signal sent from terminal
+	signal.Notify(sig, syscall.SIGINT)
+	// Terminate signal sent from Kubernetes
+	signal.Notify(sig, syscall.SIGTERM)
+
+	<-sig
+	log.Info("Received shutdown signal, setting 'terminating' to true")
+	// We received an interrupt signal, shut down.
+	c.setTerminating()
 }

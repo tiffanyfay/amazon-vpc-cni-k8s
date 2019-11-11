@@ -12,7 +12,7 @@
 # language governing permissions and limitations under the License.
 #
 
-.PHONY: all build-linux clean format check-format docker docker-build lint unit-test vet download-portmap build-docker-test build-metrics docker-metrics metrics-unit-test docker-metrics-test docker-vet
+.PHONY: all build-linux clean format check-format docker docker-build lint unit-test vet download-portmap build-docker-test build-metrics docker-metrics metrics-unit-test docker-metrics-test docker-vet build-docker-e2e build-docker-testpod
 
 IMAGE   ?= amazon/amazon-k8s-cni
 VERSION ?= $(shell git describe --tags --always --dirty)
@@ -32,9 +32,9 @@ endif
 
 # Default to build the Linux binary
 build-linux:
-	GOOS=linux GOARCH=$(ARCH) CGO_ENABLED=0 go build -o aws-k8s-agent -ldflags "$(LDFLAGS)"
-	GOOS=linux GOARCH=$(ARCH) CGO_ENABLED=0 go build -o aws-cni -ldflags "$(LDFLAGS)" ./plugins/routed-eni/
-	GOOS=linux GOARCH=$(ARCH) CGO_ENABLED=0 go build -o grpc_health_probe -ldflags "$(LDFLAGS)" ./client/health-check/
+	GOOS=linux GOARCH=$(ARCH) CGO_ENABLED=0 go build -o aws-k8s-agent -ldflags "-s -w $(LDFLAGS)"
+	GOOS=linux GOARCH=$(ARCH) CGO_ENABLED=0 go build -o aws-cni -ldflags " -s -w $(LDFLAGS)" ./plugins/routed-eni/
+	GOOS=linux GOARCH=$(ARCH) CGO_ENABLED=0 go build -o grpc_health_probe -ldflags "-s -w $(LDFLAGS)" ./client/health-check/
 
 # Download portmap plugin
 download-portmap:
@@ -47,8 +47,11 @@ download-portmap:
 
 # Build CNI Docker image
 docker:
-	@docker build --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.release -t "$(IMAGE):$(VERSION)" .
+	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.release -t "$(IMAGE):$(VERSION)" .
 	@echo "Built Docker image \"$(IMAGE):$(VERSION)\""
+
+build-docker-test:
+	@docker build -f scripts/dockerfiles/Dockerfile.test -t amazon-k8s-cni-test:latest .
 
 # unit-test
 unit-test:
@@ -64,16 +67,22 @@ unit-test-race:
 	GOOS=linux CGO_ENABLED=1 go test -v -cover -race -timeout 10s ./pkg/eniconfig/...
 	GOOS=linux CGO_ENABLED=1 go test -v -cover -race -timeout 10s ./ipamd/...
 
-build-docker-test:
-	@docker build -f scripts/dockerfiles/Dockerfile.test -t amazon-k8s-cni-test:latest .
-
 docker-unit-test: build-docker-test
 	docker run -e GO111MODULE=on \
 		amazon-k8s-cni-test:latest make unit-test
 
+build-docker-e2e:
+	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.e2e -t "amazon-k8s-cni-test-e2e:$(VERSION)" .
+	@echo "Built Docker image \"amazon-k8s-cni-test-e2e:$(VERSION)\""
+
+# maybe rename to e2e-test-helper ?
+build-docker-testpod:
+	@docker build --network=host --build-arg arch="$(ARCH)" -f scripts/dockerfiles/Dockerfile.testpod -t "amazon-k8s-cni-testpod:$(VERSION)" .
+	@echo "Built Docker image \"amazon-k8s-cni-testpod:$(VERSION)\""
+
 # Build metrics
 build-metrics:
-	GOOS=linux GOARCH=$(ARCH) CGO_ENABLED=0 go build -o cni-metrics-helper/cni-metrics-helper cni-metrics-helper/cni-metrics-helper.go
+	GOOS=linux GOARCH=$(ARCH) CGO_ENABLED=0 go build -ldflags="-s -w" -o cni-metrics-helper/cni-metrics-helper cni-metrics-helper/cni-metrics-helper.go
 
 # Build metrics Docker image
 docker-metrics:
@@ -117,7 +126,7 @@ clean:
 	rm -f cni-metrics-helper/cni-metrics-helper
 	rm -f portmap
 
-files := $(shell find . -path ./vendor -prune -or -not -name 'mock_publisher.go' -name '*.go' -print)
+files := $(shell find . -not -name 'mock_publisher.go' -name '*.go' -print)
 unformatted = $(shell goimports -l $(files))
 
 format :

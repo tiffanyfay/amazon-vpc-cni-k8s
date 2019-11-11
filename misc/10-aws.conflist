@@ -1,10 +1,12 @@
 {
+  "cniVersion": "0.3.1",
   "name": "aws-cni",
   "plugins": [
     {
       "name": "aws-cni",
       "type": "aws-cni",
-      "vethPrefix": "__VETHPREFIX__"
+      "vethPrefix": "__VETHPREFIX__",
+      "mtu": "__MTU__"
     },
     {
       "type": "portmap",

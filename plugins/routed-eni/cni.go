@@ -22,6 +22,10 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/aws/amazon-vpc-cni-k8s/ipamd/datastore"
+
+	"github.com/aws/amazon-vpc-cni-k8s/pkg/networkutils"
+
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
@@ -67,6 +71,9 @@ type NetConf struct {
 	// veth device name. It should be no more than four characters, and
 	// defaults to 'eni'.
 	VethPrefix string `json:"vethPrefix"`
+
+	// MTU for eth0
+	MTU string `json:"mtu"`
 }
 
 // K8sArgs is the valid CNI_ARGS used for Kubernetes
@@ -118,8 +125,15 @@ func add(args *skel.CmdArgs, cniTypes typeswrapper.CNITYPES, grpcClient grpcwrap
 		conf.VethPrefix = "eni"
 	}
 	if len(conf.VethPrefix) > 4 {
-		return errors.New("conf.VethPrefix must be less than 4 characters long")
+		return errors.New("conf.VethPrefix can be at most 4 characters long")
 	}
+
+	// MTU
+	if conf.MTU == "" {
+		log.Debug("MTU not set, defaulting to 9001")
+		conf.MTU = "9001"
+	}
+	mtu := networkutils.GetEthernetMTU(conf.MTU)
 
 	cniVersion := conf.CNIVersion
 
@@ -175,7 +189,7 @@ func add(args *skel.CmdArgs, cniTypes typeswrapper.CNITYPES, grpcClient grpcwrap
 	// Note: the maximum length for linux interface name is 15
 	hostVethName := generateHostVethName(conf.VethPrefix, string(k8sArgs.K8S_POD_NAMESPACE), string(k8sArgs.K8S_POD_NAME))
 
-	err = driverClient.SetupNS(hostVethName, args.IfName, args.Netns, addr, int(r.DeviceNumber), r.VPCcidrs, r.UseExternalSNAT)
+	err = driverClient.SetupNS(hostVethName, args.IfName, args.Netns, addr, int(r.DeviceNumber), r.VPCcidrs, r.UseExternalSNAT, mtu)
 
 	if err != nil {
 		log.Errorf("Failed SetupPodNetwork for pod %s namespace %s container %s: %v",
@@ -270,9 +284,17 @@ func del(args *skel.CmdArgs, cniTypes typeswrapper.CNITYPES, grpcClient grpcwrap
 			Reason:                     "PodDeleted"})
 
 	if err != nil {
-		log.Errorf("Error received from DelNetwork grpc call for pod %s namespace %s container %s: %v",
-			string(k8sArgs.K8S_POD_NAME), string(k8sArgs.K8S_POD_NAMESPACE), string(k8sArgs.K8S_POD_INFRA_CONTAINER_ID), err)
-		return err
+		if err == datastore.ErrUnknownPod {
+			// Plugins should generally complete a DEL action without error even if some resources are missing. For example,
+			// an IPAM plugin should generally release an IP allocation and return success even if the container network
+			// namespace no longer exists, unless that network namespace is critical for IPAM management
+			log.Infof("Pod %s in namespace %s not found", string(k8sArgs.K8S_POD_NAME), string(k8sArgs.K8S_POD_NAMESPACE))
+			return nil
+		} else {
+			log.Errorf("Error received from DelNetwork grpc call for pod %s namespace %s container %s: %v",
+				string(k8sArgs.K8S_POD_NAME), string(k8sArgs.K8S_POD_NAMESPACE), string(k8sArgs.K8S_POD_INFRA_CONTAINER_ID), err)
+			return err
+		}
 	}
 
 	if !r.Success {
@@ -281,17 +303,21 @@ func del(args *skel.CmdArgs, cniTypes typeswrapper.CNITYPES, grpcClient grpcwrap
 		return errors.New("del cmd: failed to process delete request")
 	}
 
-	addr := &net.IPNet{
-		IP:   net.ParseIP(r.IPv4Addr),
-		Mask: net.IPv4Mask(255, 255, 255, 255),
-	}
-
-	err = driverClient.TeardownNS(addr, int(r.DeviceNumber))
-
-	if err != nil {
-		log.Errorf("Failed on TeardownPodNetwork for pod %s namespace %s container %s: %v",
-			string(k8sArgs.K8S_POD_NAME), string(k8sArgs.K8S_POD_NAMESPACE), string(k8sArgs.K8S_POD_INFRA_CONTAINER_ID), err)
-		return err
+	deletedPodIp := net.ParseIP(r.IPv4Addr)
+	if deletedPodIp != nil {
+		addr := &net.IPNet{
+			IP:   deletedPodIp,
+			Mask: net.IPv4Mask(255, 255, 255, 255),
+		}
+		err = driverClient.TeardownNS(addr, int(r.DeviceNumber))
+		if err != nil {
+			log.Errorf("Failed on TeardownPodNetwork for pod %s namespace %s container %s: %v",
+				string(k8sArgs.K8S_POD_NAME), string(k8sArgs.K8S_POD_NAMESPACE), string(k8sArgs.K8S_POD_INFRA_CONTAINER_ID), err)
+			return err
+		}
+	} else {
+		log.Warnf("Pod %s in namespace %s did not have a valid IP %s", string(k8sArgs.K8S_POD_NAME),
+			string(k8sArgs.K8S_POD_NAMESPACE), r.IPv4Addr)
 	}
 	return nil
 }
@@ -299,15 +325,14 @@ func del(args *skel.CmdArgs, cniTypes typeswrapper.CNITYPES, grpcClient grpcwrap
 func main() {
 	logger.SetupLogger(logger.GetLogFileLocation(defaultLogFilePath))
 
-	log.Infof("Starting CNI Plugin %s  ...", version)
+	log.Infof("Starting CNI Plugin %s ...", version)
 
 	exitCode := 0
-
 	if e := skel.PluginMainWithError(cmdAdd, cmdDel, cniSpecVersion.All); e != nil {
 		exitCode = 1
 		log.Error("Failed CNI request: ", e)
 		if err := e.Print(); err != nil {
-			log.Error("Error writing error JSON to stdout: ", err)
+			log.Errorf("Error writing error JSON to stdout: %v", err)
 		}
 	}
 

@@ -78,6 +78,8 @@ func TestNodeInit(t *testing.T) {
 		maxENI:        4,
 		warmENITarget: 1,
 		warmIPTarget:  3,
+		primaryIP:     make(map[string]string),
+		terminating:   int32(0),
 		networkClient: mockNetwork}
 
 	eni1 := awsutils.ENIMetadata{
@@ -146,6 +148,9 @@ func TestNodeInit(t *testing.T) {
 	mockAWS.EXPECT().GetVPCIPv4CIDRs().Return(cidrs)
 	mockNetwork.EXPECT().UseExternalSNAT().Return(false)
 	mockNetwork.EXPECT().UpdateRuleListBySrc(gomock.Any(), gomock.Any(), gomock.Any(), true)
+	// Add IPs
+	mockAWS.EXPECT().AllocIPAddresses(gomock.Any(), gomock.Any())
+	mockAWS.EXPECT().DescribeENI(gomock.Any()).Return(eniResp, &attachmentID, nil)
 
 	err := mockContext.nodeInit()
 	assert.NoError(t, err)
@@ -175,6 +180,7 @@ func testIncreaseIPPool(t *testing.T, useENIConfig bool) {
 		useCustomNetworking: UseCustomNetworkCfg(),
 		eniConfig:           mockENIConfig,
 		primaryIP:           make(map[string]string),
+		terminating:         int32(0),
 	}
 
 	mockContext.dataStore = datastore.NewDataStore()
@@ -252,6 +258,7 @@ func TestTryAddIPToENI(t *testing.T) {
 		networkClient: mockNetwork,
 		eniConfig:     mockENIConfig,
 		primaryIP:     make(map[string]string),
+		terminating:   int32(0),
 	}
 
 	mockContext.dataStore = datastore.NewDataStore()
@@ -310,6 +317,7 @@ func TestNodeIPPoolReconcile(t *testing.T) {
 		k8sClient:     mockK8S,
 		networkClient: mockNetwork,
 		primaryIP:     make(map[string]string),
+		terminating:   int32(0),
 	}
 
 	mockContext.dataStore = datastore.NewDataStore()
@@ -397,6 +405,7 @@ func TestGetWarmIPTargetState(t *testing.T) {
 		k8sClient:     mockK8S,
 		networkClient: mockNetwork,
 		primaryIP:     make(map[string]string),
+		terminating:   int32(0),
 	}
 
 	mockContext.dataStore = datastore.NewDataStore()
@@ -412,8 +421,8 @@ func TestGetWarmIPTargetState(t *testing.T) {
 
 	// add 2 addresses to datastore
 	_ = mockContext.dataStore.AddENI("eni-1", 1, true)
-	_ = mockContext.dataStore.AddIPv4AddressFromStore("eni-1", "1.1.1.1")
-	_ = mockContext.dataStore.AddIPv4AddressFromStore("eni-1", "1.1.1.2")
+	_ = mockContext.dataStore.AddIPv4AddressToStore("eni-1", "1.1.1.1")
+	_ = mockContext.dataStore.AddIPv4AddressToStore("eni-1", "1.1.1.2")
 
 	short, over, warmIPTargetDefined = mockContext.ipTargetState()
 	assert.True(t, warmIPTargetDefined)
@@ -421,9 +430,9 @@ func TestGetWarmIPTargetState(t *testing.T) {
 	assert.Equal(t, 0, over)
 
 	// add 3 more addresses to datastore
-	_ = mockContext.dataStore.AddIPv4AddressFromStore("eni-1", "1.1.1.3")
-	_ = mockContext.dataStore.AddIPv4AddressFromStore("eni-1", "1.1.1.4")
-	_ = mockContext.dataStore.AddIPv4AddressFromStore("eni-1", "1.1.1.5")
+	_ = mockContext.dataStore.AddIPv4AddressToStore("eni-1", "1.1.1.3")
+	_ = mockContext.dataStore.AddIPv4AddressToStore("eni-1", "1.1.1.4")
+	_ = mockContext.dataStore.AddIPv4AddressToStore("eni-1", "1.1.1.5")
 
 	short, over, warmIPTargetDefined = mockContext.ipTargetState()
 	assert.True(t, warmIPTargetDefined)
@@ -436,10 +445,10 @@ func TestIPAMContext_nodeIPPoolTooLow(t *testing.T) {
 	defer ctrl.Finish()
 
 	type fields struct {
-		maxIPsPerENI           int
-		warmENITarget          int
-		warmIPTarget           int
-		datastore              *datastore.DataStore
+		maxIPsPerENI  int
+		warmENITarget int
+		warmIPTarget  int
+		datastore     *datastore.DataStore
 	}
 
 	tests := []struct {
@@ -447,7 +456,7 @@ func TestIPAMContext_nodeIPPoolTooLow(t *testing.T) {
 		fields fields
 		want   bool
 	}{
-		{"Test new ds, all defaults", fields{14,  1, 0, datastore.NewDataStore()}, true},
+		{"Test new ds, all defaults", fields{14, 1, 0, datastore.NewDataStore()}, true},
 		{"Test new ds, 0 ENIs", fields{14, 0, 0, datastore.NewDataStore()}, true},
 		{"Test new ds, 3 warm IPs", fields{14, 0, 3, datastore.NewDataStore()}, true},
 		{"Test 3 unused IPs, 1 warm", fields{3, 1, 1, datastoreWith3FreeIPs()}, false},
@@ -459,16 +468,16 @@ func TestIPAMContext_nodeIPPoolTooLow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &IPAMContext{
-				awsClient:              mockAWS,
-				dataStore:              tt.fields.datastore,
-				k8sClient:              mockK8S,
-				useCustomNetworking:    false,
-				eniConfig:              mockENIConfig,
-				networkClient:          mockNetwork,
-				maxIPsPerENI:           tt.fields.maxIPsPerENI,
-				maxENI:                 -1,
-				warmENITarget:          tt.fields.warmENITarget,
-				warmIPTarget:           tt.fields.warmIPTarget,
+				awsClient:           mockAWS,
+				dataStore:           tt.fields.datastore,
+				k8sClient:           mockK8S,
+				useCustomNetworking: false,
+				eniConfig:           mockENIConfig,
+				networkClient:       mockNetwork,
+				maxIPsPerENI:        tt.fields.maxIPsPerENI,
+				maxENI:              -1,
+				warmENITarget:       tt.fields.warmENITarget,
+				warmIPTarget:        tt.fields.warmIPTarget,
 			}
 			if got := c.nodeIPPoolTooLow(); got != tt.want {
 				t.Errorf("nodeIPPoolTooLow() = %v, want %v", got, tt.want)
@@ -480,9 +489,9 @@ func TestIPAMContext_nodeIPPoolTooLow(t *testing.T) {
 func datastoreWith3FreeIPs() *datastore.DataStore {
 	datastoreWith3FreeIPs := datastore.NewDataStore()
 	_ = datastoreWith3FreeIPs.AddENI(primaryENIid, 1, true)
-	_ = datastoreWith3FreeIPs.AddIPv4AddressFromStore(primaryENIid, ipaddr01)
-	_ = datastoreWith3FreeIPs.AddIPv4AddressFromStore(primaryENIid, ipaddr02)
-	_ = datastoreWith3FreeIPs.AddIPv4AddressFromStore(primaryENIid, ipaddr03)
+	_ = datastoreWith3FreeIPs.AddIPv4AddressToStore(primaryENIid, ipaddr01)
+	_ = datastoreWith3FreeIPs.AddIPv4AddressToStore(primaryENIid, ipaddr02)
+	_ = datastoreWith3FreeIPs.AddIPv4AddressToStore(primaryENIid, ipaddr03)
 	return datastoreWith3FreeIPs
 }
 

@@ -27,6 +27,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aws/amazon-vpc-cni-k8s/pkg/utils/retry"
+
 	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 
@@ -40,12 +42,12 @@ import (
 )
 
 const (
-	// 0- 511 can be used other higher priorities
+	// 0 - 511 can be used other higher priorities
 	toPodRulePriority = 512
 
 	// 513 - 1023, can be used priority lower than toPodRulePriority but higher than default nonVPC CIDR rule
 
-	// 1024 is reserved for (ip rule not to <vpc's subnet> table main)
+	// 1024 is reserved for (ip rule not to <VPC's subnet> table main)
 	hostRulePriority = 1024
 
 	// 1025 - 1535 can be used priority lower than fromPodRulePriority but higher than default nonVPC CIDR rule
@@ -54,8 +56,8 @@ const (
 	mainRoutingTable = unix.RT_TABLE_MAIN
 
 	// This environment is used to specify whether an external NAT gateway will be used to provide SNAT of
-	// secondary ENI IP addresses.  If set to "true", the SNAT iptables rule and off-VPC ip rule will not
-	// be installed and will be removed if they are already installed.  Defaults to false.
+	// secondary ENI IP addresses. If set to "true", the SNAT iptables rule and off-VPC ip rule will not
+	// be installed and will be removed if they are already installed. Defaults to false.
 	envExternalSNAT = "AWS_VPC_K8S_CNI_EXTERNALSNAT"
 
 	// This environment is used to specify a comma separated list of ipv4 CIDRs to exclude from SNAT. An additional rule
@@ -70,25 +72,29 @@ const (
 	envRandomizeSNAT = "AWS_VPC_K8S_CNI_RANDOMIZESNAT"
 
 	// envNodePortSupport is the name of environment variable that configures whether we implement support for
-	// NodePorts on the primary ENI.  This requires that we add additional iptables rules and loosen the kernel's
-	// RPF check as described below.  Defaults to true.
+	// NodePorts on the primary ENI. This requires that we add additional iptables rules and loosen the kernel's
+	// RPF check as described below. Defaults to true.
 	envNodePortSupport = "AWS_VPC_CNI_NODE_PORT_SUPPORT"
 
 	// envConnmark is the name of the environment variable that overrides the default connection mark, used to
 	// mark traffic coming from the primary ENI so that return traffic can be forced out of the same interface.
 	// Without using a mark, NodePort DNAT and our source-based routing do not work together if the target pod
-	// behind the node port is not on the main ENI.  In that case, the un-DNAT is done after the source-based
+	// behind the node port is not on the main ENI. In that case, the un-DNAT is done after the source-based
 	// routing, resulting in the packet being sent out of the pod's ENI, when the NodePort traffic should be
 	// sent over the main ENI.
 	envConnmark = "AWS_VPC_K8S_CNI_CONNMARK"
 
-	// defaultConnmark is the default value for the connmark described above.  Note: the mark space is a little crowded,
+	// defaultConnmark is the default value for the connmark described above. Note: the mark space is a little crowded,
 	// - kube-proxy uses 0x0000c000
 	// - Calico uses 0xffff0000.
 	defaultConnmark = 0x80
 
-	// MTU of ENI - veth MTU defined in plugins/routed-eni/driver/driver.go
-	ethernetMTU = 9001
+	// envMTU gives a way to configure the MTU size for new ENIs attached. Range is from 576 to 9001.
+	envMTU = "AWS_VPC_ENI_MTU"
+
+	// Range of MTU for each ENI and veth pair. Defaults to maximumMTU
+	minimumMTU = 576
+	maximumMTU = 9001
 
 	// number of retries to add a route
 	maxRetryRouteAdd = 5
@@ -121,6 +127,7 @@ type linuxNetwork struct {
 	typeOfSNAT             snatType
 	nodePortSupportEnabled bool
 	connmark               uint32
+	mtu                    int
 
 	netLink     netlinkwrapper.NetLink
 	ns          nswrapper.NS
@@ -158,6 +165,7 @@ func New() NetworkAPIs {
 		typeOfSNAT:             typeOfSNAT(),
 		nodePortSupportEnabled: nodePortSupportEnabled(),
 		mainENIMark:            getConnmark(),
+		mtu:                    GetEthernetMTU(""),
 
 		netLink: netlinkwrapper.NewNetLink(),
 		ns:      nswrapper.NewNS(),
@@ -223,14 +231,14 @@ func (n *linuxNetwork) SetupHostNetwork(vpcCIDR *net.IPNet, vpcCIDRs []*string, 
 			return errors.Wrapf(err, "failed to SetupHostNetwork")
 		}
 		// If node port support is enabled, configure the kernel's reverse path filter check on eth0 for "loose"
-		// filtering.  This is required because
+		// filtering. This is required because
 		// - NodePorts are exposed on eth0
 		// - The kernel's RPF check happens after incoming packets to NodePorts are DNATted to the pod IP.
-		// - For pods assigned to secondary ENIs, the routing table includes source-based routing.  When the kernel does
+		// - For pods assigned to secondary ENIs, the routing table includes source-based routing. When the kernel does
 		//   the RPF check, it looks up the route using the pod IP as the source.
 		// - Thus, it finds the source-based route that leaves via the secondary ENI.
 		// - In "strict" mode, the RPF check fails because the return path uses a different interface to the incoming
-		//   packet.  In "loose" mode, the check passes because some route was found.
+		//   packet. In "loose" mode, the check passes because some route was found.
 		primaryIntfRPFilter := "/proc/sys/net/ipv4/conf/" + primaryIntf + "/rp_filter"
 		const rpFilterLoose = "2"
 
@@ -239,6 +247,14 @@ func (n *linuxNetwork) SetupHostNetwork(vpcCIDR *net.IPNet, vpcCIDRs []*string, 
 		if err != nil {
 			return errors.Wrapf(err, "failed to configure %s RPF check", primaryIntf)
 		}
+	}
+
+	link, err := LinkByMac(primaryMAC, n.netLink, retryLinkByMacInterval)
+	if err != nil {
+		return errors.Wrapf(err, "setupHostNetwork: failed to find the link primary ENI with MAC address %s", primaryMAC)
+	}
+	if err = n.netLink.LinkSetMTU(link, n.mtu); err != nil {
+		return errors.Wrapf(err, "setupHostNetwork: failed to set MTU to %d for %s", n.mtu, primaryIntf)
 	}
 
 	// If node port support is enabled, add a rule that will force force marked traffic out of the main ENI.  We then
@@ -657,11 +673,11 @@ func LinkByMac(mac string, netLink netlinkwrapper.NetLink, retryInterval time.Du
 
 // SetupENINetwork adds default route to route table (eni-<eni_table>)
 func (n *linuxNetwork) SetupENINetwork(eniIP string, eniMAC string, eniTable int, eniSubnetCIDR string) error {
-	return setupENINetwork(eniIP, eniMAC, eniTable, eniSubnetCIDR, n.netLink, retryLinkByMacInterval, retryRouteAddInterval)
+	return setupENINetwork(eniIP, eniMAC, eniTable, eniSubnetCIDR, n.netLink, retryLinkByMacInterval, retryRouteAddInterval, n.mtu)
 }
 
 func setupENINetwork(eniIP string, eniMAC string, eniTable int, eniSubnetCIDR string, netLink netlinkwrapper.NetLink,
-	retryLinkByMacInterval time.Duration, retryRouteAddInterval time.Duration) error {
+	retryLinkByMacInterval time.Duration, retryRouteAddInterval time.Duration, mtu int) error {
 
 	if eniTable == 0 {
 		log.Debugf("Skipping set up ENI network for primary interface")
@@ -675,8 +691,8 @@ func setupENINetwork(eniIP string, eniMAC string, eniTable int, eniSubnetCIDR st
 		return errors.Wrapf(err, "setupENINetwork: failed to find the link which uses MAC address %s", eniMAC)
 	}
 
-	if err = netLink.LinkSetMTU(link, ethernetMTU); err != nil {
-		return errors.Wrapf(err, "setupENINetwork: failed to set MTU for %s", eniIP)
+	if err = netLink.LinkSetMTU(link, mtu); err != nil {
+		return errors.Wrapf(err, "setupENINetwork: failed to set MTU to %d for %s", mtu, eniIP)
 	}
 
 	if err = netLink.LinkSetUp(link); err != nil {
@@ -745,35 +761,18 @@ func setupENINetwork(eniIP string, eniMAC string, eniTable int, eniSubnetCIDR st
 			return errors.Wrap(err, "setupENINetwork: failed to clean up old routes")
 		}
 
-		// In case of route dependency, retry few times
-		retry := 0
-		for {
-			if err := netLink.RouteAdd(&r); err != nil {
-				if netlinkwrapper.IsNetworkUnreachableError(err) {
-					retry++
-					if retry > maxRetryRouteAdd {
-						log.Errorf("Failed to add route %s/0 via %s table %d",
-							r.Dst.IP.String(), gw.String(), eniTable)
-						return errors.Wrapf(err, "setupENINetwork: failed to add route %s/0 via %s table %d",
-							r.Dst.IP.String(), gw.String(), eniTable)
-					}
-					log.Debugf("Not able to add route route %s/0 via %s table %d (attempt %d/%d)",
-						r.Dst.IP.String(), gw.String(), eniTable, retry, maxRetryRouteAdd)
-					time.Sleep(retryRouteAddInterval)
-				} else if netlinkwrapper.IsRouteExistsError(err) {
-					if err := netLink.RouteReplace(&r); err != nil {
-						return errors.Wrapf(err, "setupENINetwork: unable to replace route entry %s", r.Dst.IP.String())
-					}
-					log.Debugf("Successfully replaced route to be %s/0", r.Dst.IP.String())
-					break
-				} else {
-					return errors.Wrapf(err, "setupENINetwork: unable to add route %s/0 via %s table %d",
-						r.Dst.IP.String(), gw.String(), eniTable)
-				}
-			} else {
-				log.Debugf("Successfully added route route %s/0 via %s table %d", r.Dst.IP.String(), gw.String(), eniTable)
-				break
+		err = retry.RetryNWithBackoff(retry.NewSimpleBackoff(500*time.Millisecond, retryRouteAddInterval, 0.15, 2.0), maxRetryRouteAdd, func() error {
+			if err := netLink.RouteReplace(&r); err != nil {
+				log.Debugf("Not able to set route %s/0 via %s table %d",
+					r.Dst.IP.String(), gw.String(), eniTable)
+				return errors.Wrapf(err, "setupENINetwork: unable to replace route entry %s", r.Dst.IP.String())
 			}
+
+			log.Debugf("Successfully added/replaced route to be %s/0", r.Dst.IP.String())
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 	}
 
@@ -803,14 +802,14 @@ func incrementIPv4Addr(ip net.IP) (net.IP, error) {
 	if ip4 == nil {
 		return nil, fmt.Errorf("%q is not a valid IPv4 Address", ip)
 	}
-	intIP := binary.BigEndian.Uint32([]byte(ip4))
+	intIP := binary.BigEndian.Uint32(ip4)
 	if intIP == (1<<32 - 1) {
 		return nil, fmt.Errorf("%q will be overflowed", ip)
 	}
 	intIP++
-	bytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(bytes, intIP)
-	return net.IP(bytes), nil
+	nextIPv4 := make(net.IP, 4)
+	binary.BigEndian.PutUint32(nextIPv4, intIP)
+	return nextIPv4, nil
 }
 
 // GetRuleList returns IP rules
@@ -928,4 +927,32 @@ func (n *linuxNetwork) UpdateRuleListBySrc(ruleList []netlink.Rule, src net.IPNe
 		log.Infof("UpdateRuleListBySrc: Successfully added pod rule[%v]", podRule)
 	}
 	return nil
+}
+
+// GetEthernetMTU gets the MTU setting from AWS_VPC_ENI_MTU if set, or takes the passed in string. Defaults to 9001 if not set.
+func GetEthernetMTU(envMTUValue string) int {
+	inputStr, found := os.LookupEnv(envMTU)
+	if found {
+		envMTUValue = inputStr
+	}
+	if envMTUValue != "" {
+		mtu, err := strconv.Atoi(envMTUValue)
+		if err != nil {
+			log.Errorf("Failed to parse %s will use %d: %v", envMTU, maximumMTU, err.Error())
+			return maximumMTU
+		}
+		// Restrict range between jumbo frame and the maximum required size to assemble.
+		// Details in https://tools.ietf.org/html/rfc879 and
+		// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/network_mtu.html
+		if mtu < minimumMTU {
+			log.Errorf("%s is too low: %d. Will use %d", envMTU, mtu, minimumMTU)
+			return minimumMTU
+		}
+		if mtu > maximumMTU {
+			log.Errorf("%s is too high: %d. Will use %d", envMTU, mtu, maximumMTU)
+			return maximumMTU
+		}
+		return mtu
+	}
+	return maximumMTU
 }
